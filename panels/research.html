@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>个股研报</title>
+<style>
+  :root { --bg:#f6f4f1; --ink:#1c1917; --muted:#78716c; --line:#e7e5e4; --card:#fff; }
+  body { margin:0; font-family:"IBM Plex Sans","PingFang SC",sans-serif; background:var(--bg); color:var(--ink); }
+  header { padding:18px 22px; border-bottom:1px solid var(--line); background:#fffcf8; display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between; }
+  h1 { margin:0; font-size:1.2rem; font-family:"Newsreader","Songti SC",serif; }
+  .wrap { max-width:900px; margin:0 auto; padding:18px; }
+  input,button { padding:8px 12px; border-radius:8px; border:1px solid var(--line); }
+  button { background:#0f766e; color:#fff; border-color:#0f766e; cursor:pointer; }
+  pre { white-space:pre-wrap; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; line-height:1.55; font-size:.9rem; }
+  a { color:#0f766e; text-decoration:none; }
+  .muted { color:var(--muted); font-size:.85rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>个股深度研报</h1>
+  <div>
+    <input id="symbol" placeholder="AAPL / 00700 / BABA" />
+    <button onclick="run()">生成</button>
+    <a href="/">首页</a>
+  </div>
+</header>
+<div class="wrap">
+  <p class="muted">输出同时写入 <code>invest-workbench/reports/</code>。纪律：事实与判断分离、标注来源与时间、禁止编造。</p>
+  <pre id="out">输入代码后生成…</pre>
+</div>
+<script>
+async function run(){
+  const symbol=document.getElementById('symbol').value.trim();
+  if(!symbol) return;
+  document.getElementById('out').textContent='采集中（Yahoo/东财/行情）…';
+  const d = await (await fetch('/api/research?symbol='+encodeURIComponent(symbol))).json();
+  if(d.error){ document.getElementById('out').textContent=d.error; return; }
+  document.getElementById('out').textContent = `文件: ${d.path}\n\n` + d.markdown;
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>期权机会雷达</title>
+<style>
+  :root { --bg:#f7f5f2; --ink:#1c1917; --muted:#78716c; --line:#e7e5e4; --card:#fff; --hi:#fff7ed; --accent:#c2410c; }
+  body { margin:0; font-family:"IBM Plex Sans","PingFang SC",sans-serif; background:var(--bg); color:var(--ink); }
+  header { padding:18px 22px; border-bottom:1px solid var(--line); background:#fffaf5; display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between; }
+  h1 { margin:0; font-size:1.2rem; font-family:"Newsreader","Songti SC",serif; }
+  .wrap { max-width:1200px; margin:0 auto; padding:18px; }
+  input { padding:8px 10px; border:1px solid var(--line); border-radius:8px; min-width:280px; }
+  button { padding:8px 12px; border-radius:8px; border:1px solid var(--line); background:#fff; cursor:pointer; }
+  table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  th,td { padding:9px 10px; border-bottom:1px solid var(--line); font-size:.88rem; text-align:left; }
+  th { color:var(--muted); background:#fafaf9; }
+  .pos { font-family:ui-monospace,Menlo,monospace; }
+  tr.hi { background:var(--hi); }
+  .note { color:var(--muted); font-size:.85rem; margin-top:12px; }
+  a { color:#0f766e; text-decoration:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>期权机会雷达</h1>
+  <div>
+    <input id="symbols" value="AAPL,MSFT,NVDA,TSLA,META,AMD,GOOGL,AMZN" />
+    <input id="owned" placeholder="已有空头标的，如 AAPL,TSLA" style="min-width:180px" />
+    <button onclick="load()">扫描</button>
+    <a href="/">首页</a>
+  </div>
+</header>
+<div class="wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>标的</th><th>现价</th><th>52周%</th><th>IV</th><th>IV分位*</th>
+        <th>远期 Put</th><th>Put年化</th><th>短线 Call</th><th>Call年化</th><th>标记</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"><tr><td colspan="10">点击扫描（首次可能需 20–40 秒）</td></tr></tbody>
+  </table>
+  <p class="note" id="note"></p>
+</div>
+<script>
+const fmt=n=>n==null||n===''?'—':n;
+async function load(){
+  const symbols = document.getElementById('symbols').value;
+  const owned = document.getElementById('owned').value;
+  document.getElementById('tbody').innerHTML = '<tr><td colspan="10">拉取期权链中…</td></tr>';
+  const d = await (await fetch('/api/options?symbols='+encodeURIComponent(symbols)+'&owned='+encodeURIComponent(owned))).json();
+  const rows = (d.rows||[]).map(r=>{
+    if(r.error) return `<tr><td class="pos">${r.symbol||''}</td><td colspan="9">${r.error}</td></tr>`;
+    const put=r.sell_put_far||{}, call=r.covered_call_near||{};
+    return `<tr class="${r.highlight?'hi':''}">
+      <td class="pos">${r.symbol}</td>
+      <td class="pos">${fmt(r.spot)}</td>
+      <td class="pos">${fmt(r.pos_52w)}</td>
+      <td class="pos">${fmt(r.iv)}${r.iv!=null?'%':''}</td>
+      <td class="pos">${fmt(r.iv_percentile_proxy)}</td>
+      <td class="pos">${put.strike?`${put.expiry} @${put.strike} ($${put.premium})`:'—'}</td>
+      <td class="pos">${fmt(put.annualized_pct)}${put.annualized_pct!=null?'%':''}</td>
+      <td class="pos">${call.strike?`${call.expiry} @${call.strike} ($${call.premium})`:'—'}</td>
+      <td class="pos">${fmt(call.annualized_pct)}${call.annualized_pct!=null?'%':''}</td>
+      <td>${r.already_short?'已有空头':(r.highlight?'IV偏贵':'')}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('tbody').innerHTML = rows || '<tr><td colspan="10">无数据</td></tr>';
+  document.getElementById('note').textContent = `${d.rule||''} · ${d.fetched_at||''}`;
+}
+</script>
+</body>
+</html>

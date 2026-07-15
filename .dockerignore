@@ -1,0 +1,13 @@
+.git
+.gitignore
+data/
+reports/
+__pycache__/
+*.pyc
+*.sqlite
+*.sqlite-*
+.DS_Store
+README.md
+.env
+*.md
+!prompts/**/*.md

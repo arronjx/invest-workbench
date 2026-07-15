@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>invest-workbench</title>
+<style>
+  :root {
+    --bg: #f6f4f1;
+    --ink: #1c1917;
+    --muted: #78716c;
+    --card: #fffefb;
+    --line: #e7e5e4;
+    --accent: #0f766e;
+    --good: #15803d;
+    --bad: #b91c1c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: "IBM Plex Sans", "PingFang SC", sans-serif;
+    background:
+      radial-gradient(900px 500px at 10% -10%, #d9f0eb 0%, transparent 55%),
+      radial-gradient(700px 400px at 100% 0%, #fde7d6 0%, transparent 50%),
+      var(--bg);
+    color: var(--ink); min-height: 100vh;
+  }
+  header { padding: 40px 28px 12px; max-width: 960px; margin: 0 auto; }
+  h1 { font-family: "Newsreader", "Songti SC", serif; font-weight: 600; font-size: 2rem; margin: 0 0 8px; }
+  .sub { color: var(--muted); line-height: 1.6; max-width: 42rem; }
+  .grid {
+    display: grid; gap: 14px; padding: 20px 28px 48px;
+    max-width: 960px; margin: 0 auto;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
+  a.card {
+    display: block; text-decoration: none; color: inherit;
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 18px 16px;
+    transition: transform .15s ease, box-shadow .15s ease;
+  }
+  a.card:hover { transform: translateY(-2px); box-shadow: 0 10px 30px rgba(28,25,23,.08); }
+  a.card h2 { margin: 0 0 8px; font-size: 1.1rem; }
+  a.card p { margin: 0; color: var(--muted); font-size: .92rem; line-height: 1.5; }
+  .tag { display: inline-block; font-size: .72rem; color: var(--accent);
+    border: 1px solid #99f6e4; background: #f0fdfa; border-radius: 999px; padding: 2px 8px; margin-bottom: 10px; }
+  footer { max-width: 960px; margin: 0 auto; padding: 0 28px 40px; color: var(--muted); font-size: .85rem; }
+  code { background: #f5f5f4; padding: 1px 6px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>AI 投资工作台</h1>
+  <p class="sub">行情、研报与韩股供需资讯。数据层：global-stock-data（新浪/腾讯/东财/Yahoo）+ Toss。持仓账户另系统，本台不读 <code>hk-pos</code>。</p>
+</header>
+<main class="grid">
+  <a class="card" href="/panels/kr-investor.html"><span class="tag">KOR</span><h2>买卖动向 · 滤网</h2><p>外机共振 / 量级 / 价格 / 连续 · 供需滤网（非下单信号）。</p></a>
+  <a class="card" href="/panels/market.html"><span class="tag">大盘</span><h2>估值分位</h2><p>VIX / 标普 / 纳指偏离分位 + ERP + 恐惧贪婪合成买点分。</p></a>
+  <a class="card" href="/panels/options.html"><span class="tag">期权</span><h2>机会雷达</h2><p>美股 IV 与远期 Put / 备兑 Call 年化排序。</p></a>
+  <a class="card" href="/panels/decision.html"><span class="tag">纪律</span><h2>交易决策</h2><p>六层买入漏斗 + 卖点触发器 + 本地交易日志。</p></a>
+  <a class="card" href="/panels/research.html"><span class="tag">研报</span><h2>个股研究</h2><p>一键生成带来源时间戳的九段 Markdown 研报。</p></a>
+</main>
+<footer>
+  启动：<code>python3 cli.py serve</code>（默认局域网可访问）→ <code>http://127.0.0.1:8787/</code>
+</footer>
+</body>
+</html>

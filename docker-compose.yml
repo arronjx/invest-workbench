@@ -1,0 +1,17 @@
+services:
+  workbench:
+    build: .
+    image: invest-workbench:latest
+    container_name: invest-workbench
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    volumes:
+      - ./data:/app/data
+      - ./reports:/app/reports
+    environment:
+      TZ: Asia/Shanghai
+      PORT: "8787"
+      # 公网部署请设置（本地可留空关闭鉴权）
+      # BASIC_AUTH_USER: me
+      # BASIC_AUTH_PASSWORD: change-me

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>大盘估值分位</title>
+<style>
+  :root { --bg:#f4f7f6; --ink:#14201d; --muted:#6b7280; --line:#dbe5e1; --card:#fff; --accent:#0f766e; }
+  body { margin:0; font-family:"IBM Plex Sans","PingFang SC",sans-serif; background:var(--bg); color:var(--ink); }
+  header { padding:18px 22px; border-bottom:1px solid var(--line); background:#fbfffe; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+  h1 { margin:0; font-size:1.2rem; font-family:"Newsreader","Songti SC",serif; }
+  .wrap { max-width:1000px; margin:0 auto; padding:20px; }
+  .hero { background:linear-gradient(135deg,#0f766e,#134e4a); color:#ecfdf5; border-radius:16px; padding:22px; margin-bottom:16px; }
+  .hero .score { font-size:3rem; font-family:ui-monospace,Menlo,monospace; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; }
+  .l { color:var(--muted); font-size:.8rem; }
+  .v { font-family:ui-monospace,Menlo,monospace; font-size:1.15rem; margin-top:6px; }
+  .bar { height:8px; background:#e5e7eb; border-radius:99px; margin-top:10px; overflow:hidden; }
+  .bar > i { display:block; height:100%; background:var(--accent); }
+  .rule { margin-top:16px; color:var(--muted); font-size:.85rem; line-height:1.6; }
+  select,button { padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:#fff; }
+  a { color:#0f766e; text-decoration:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>大盘估值分位</h1>
+  <div>
+    <label>回看
+      <select id="years"><option>1</option><option selected>5</option><option>10</option></select> 年
+    </label>
+    <button onclick="load()">刷新</button>
+    <a href="/">首页</a>
+  </div>
+</header>
+<div class="wrap">
+  <div class="hero">
+    <div class="l" style="color:#a7f3d0">买点评分（0-100，越高越偏便宜/恐惧）</div>
+    <div class="score" id="score">—</div>
+    <div id="stance" style="margin-top:6px"></div>
+  </div>
+  <div class="grid" id="grid"></div>
+  <p class="rule" id="rule"></p>
+</div>
+<script>
+const fmt = n => n==null?'—':n;
+function bar(pct){
+  if(pct==null) return '';
+  return `<div class="bar"><i style="width:${Math.max(0,Math.min(100,pct))}%"></i></div>`;
+}
+async function load(){
+  const years = document.getElementById('years').value;
+  document.getElementById('score').textContent = '…';
+  const d = await (await fetch('/api/market?years='+years)).json();
+  const sc = d.score||{};
+  document.getElementById('score').textContent = fmt(sc.value);
+  document.getElementById('stance').textContent = sc.stance||'';
+  const pos = d.position||{}, val=d.valuation||{}, sen=d.sentiment||{}, pieces=sc.pieces||{};
+  const cards = [
+    ['标普偏离分位', pos.spx?.percentile, `${fmt(pos.spx?.price)} vs MA200 ${fmt(pos.spx?.ma200)}`],
+    ['纳指偏离分位', pos.ndx?.percentile, `${fmt(pos.ndx?.price)}`],
+    ['VIX 绝对分位', pos.vix?.abs_percentile, `VIX ${fmt(pos.vix?.price)}`],
+    ['股权风险溢价 ERP', val.erp_pct, `EY ${fmt(val.earnings_yield_pct)}% − 10Y ${fmt(val.ust10y_pct)}%`],
+    ['恐惧贪婪', sen.score, `${sen.rating||''} · ${sen.source||''}`],
+    ['分项得分', null, Object.entries(pieces).map(([k,v])=>`${k}:${fmt(v)}`).join(' · ')],
+  ];
+  document.getElementById('grid').innerHTML = cards.map(([t,p,sub])=>`
+    <div class="card"><div class="l">${t}</div><div class="v">${p==null?sub:fmt(p)}${p!=null && (t.includes('分位')||t.includes('恐惧'))?'%':''}</div>
+    ${bar(typeof p==='number'?p:null)}<div class="l" style="margin-top:8px">${p==null?'':sub}</div></div>`).join('');
+  document.getElementById('rule').textContent = `${sc.rule||''} · PE代理: ${val.pe_source||''} · ${d.fetched_at||''}`;
+}
+load();
+</script>
+</body>
+</html>

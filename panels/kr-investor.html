@@ -243,7 +243,7 @@ function renderStock(s) {
   const rowPct = `<tr><td class="label">成交占比*</td>${cols.map(c =>
     `<td>${c.estimated ? '—' : fmtPct(c.volume_pct)}</td>`).join('')}</tr>`;
 
-  return `<section class="stock">
+  return `<section class="stock" id="stock-${s.code}" data-code="${s.code}">
     <div class="stock-head">
       <div class="title-block">
         <h2>${s.name} <span style="color:var(--muted);font-weight:500">${s.code}</span></h2>
@@ -304,6 +304,43 @@ function renderStock(s) {
 }
 
 const chartInstances = {};
+let paintedCodesKey = '';
+
+function stockCodesKey(stocks) {
+  return (stocks || []).map(s => s.code).join(',');
+}
+
+function destroyAllCharts() {
+  Object.keys(chartInstances).forEach(code => {
+    try { chartInstances[code].destroy(); } catch (_) {}
+    delete chartInstances[code];
+  });
+}
+
+/** 同标的刷新：保留 .chart-wrap / canvas，只替换其余 DOM，避免图表跳动 */
+function patchStockDom(stocks) {
+  (stocks || []).forEach(s => {
+    const sec = document.getElementById('stock-' + s.code);
+    if (!sec) return;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = renderStock(s);
+    const neu = tmp.firstElementChild;
+    if (!neu) return;
+    const oldChart = sec.querySelector('.chart-wrap');
+    const frag = document.createDocumentFragment();
+    [...neu.children].forEach(ch => {
+      if (ch.classList.contains('chart-wrap')) {
+        const newCap = ch.querySelector('.cap');
+        const oldCap = oldChart && oldChart.querySelector('.cap');
+        if (oldCap && newCap) oldCap.textContent = newCap.textContent;
+        if (oldChart) frag.appendChild(oldChart);
+      } else {
+        frag.appendChild(ch);
+      }
+    });
+    sec.replaceChildren(frag);
+  });
+}
 
 /** 韩股 09:00–15:30 KST = CST 08:00–14:30，每 5 分钟一格 */
 function sessionLabelsCST() {
@@ -342,8 +379,30 @@ function paintCharts(stocks) {
     const el = document.getElementById('chart-' + s.code);
     if (!el) return;
     const { labels, foreign, organ, chg } = seriesAlignedToSession(pts);
-    if (chartInstances[s.code]) {
-      chartInstances[s.code].destroy();
+    const existing = chartInstances[s.code];
+    // 原地改数据 + 无动画 update，避免 destroy/rebuild 跳动
+    if (existing && existing.canvas === el) {
+      existing.data.labels = labels;
+      existing.data.datasets[0].data = foreign;
+      existing.data.datasets[1].data = organ;
+      existing.data.datasets[2].data = chg;
+      // 同步线型样式（涨跌幅黄实线、无面积）
+      const styles = [
+        { borderColor: '#1d4ed8', borderDash: [], fill: false },
+        { borderColor: '#93c5fd', borderDash: [], fill: false },
+        { borderColor: '#eab308', borderDash: [], fill: false },
+      ];
+      styles.forEach((st, i) => {
+        Object.assign(existing.data.datasets[i], st);
+        existing.data.datasets[i].pointRadius = 0;
+        existing.data.datasets[i].backgroundColor = 'transparent';
+      });
+      existing.update('none');
+      return;
+    }
+    if (existing) {
+      try { existing.destroy(); } catch (_) {}
+      delete chartInstances[s.code];
     }
     chartInstances[s.code] = new Chart(el, {
       type: 'line',
@@ -353,35 +412,41 @@ function paintCharts(stocks) {
           {
             label: '外资净买',
             data: foreign,
-            borderColor: '#e11d48',
+            borderColor: '#1d4ed8',
             backgroundColor: 'transparent',
+            fill: false,
             yAxisID: 'y',
-            tension: 0.15,
-            pointRadius: (ctx) => (ctx.raw == null ? 0 : 2),
-            borderWidth: 1.5,
+            tension: 0.35,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            borderWidth: 2,
             spanGaps: false,
           },
           {
             label: '机构净买',
             data: organ,
-            borderColor: '#2563eb',
+            borderColor: '#93c5fd',
             backgroundColor: 'transparent',
+            fill: false,
             yAxisID: 'y',
-            tension: 0.15,
-            pointRadius: (ctx) => (ctx.raw == null ? 0 : 2),
-            borderWidth: 1.5,
+            tension: 0.35,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            borderWidth: 2,
             spanGaps: false,
           },
           {
             label: '涨跌幅%',
             data: chg,
-            borderColor: '#0f766e',
+            borderColor: '#eab308',
             backgroundColor: 'transparent',
+            fill: false,
             yAxisID: 'y1',
-            tension: 0.15,
-            pointRadius: (ctx) => (ctx.raw == null ? 0 : 2),
-            borderWidth: 1.5,
-            borderDash: [4, 3],
+            tension: 0.35,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            borderWidth: 2,
+            borderDash: [],
             spanGaps: false,
           },
         ],
@@ -389,9 +454,17 @@ function paintCharts(stocks) {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        animation: false,
         interaction: { mode: 'index', intersect: false },
         plugins: {
-          legend: { labels: { boxWidth: 12, font: { size: 11 } } },
+          legend: {
+            labels: {
+              boxWidth: 14,
+              boxHeight: 2,
+              usePointStyle: false,
+              font: { size: 11 },
+            },
+          },
           tooltip: {
             filter: (item) => item.parsed.y != null,
             callbacks: {
@@ -419,22 +492,54 @@ function paintCharts(stocks) {
               },
             },
             grid: { display: false },
+            border: { display: false },
           },
           y: {
             position: 'left',
             title: { display: true, text: '净买(股)', font: { size: 10 } },
             ticks: { font: { size: 10 }, callback: (v) => Number(v).toLocaleString('en-US') },
+            grid: { color: 'rgba(148,163,184,0.25)' },
+            border: { display: false },
           },
           y1: {
             position: 'right',
             grid: { drawOnChartArea: false },
             title: { display: true, text: '涨跌%', font: { size: 10 } },
             ticks: { font: { size: 10 }, callback: (v) => v + '%' },
+            border: { display: false },
           },
         },
       },
     });
   });
+}
+
+function renderDashboard(stocks, errsHtml) {
+  const root = document.getElementById('root');
+  const key = stockCodesKey(stocks);
+  const canPatch = key && key === paintedCodesKey && root.querySelector('.stock');
+  if (canPatch) {
+    patchStockDom(stocks);
+  } else {
+    destroyAllCharts();
+    const html = (stocks || []).map(renderStock).join('')
+      || `<div class="stock"><div class="err">无数据</div></div>`;
+    root.innerHTML = html;
+    paintedCodesKey = key;
+  }
+  // 错误条：挂在 root 末尾独立节点，避免影响 chart
+  let errBox = document.getElementById('dash-errors');
+  if (errsHtml) {
+    if (!errBox) {
+      errBox = document.createElement('div');
+      errBox.id = 'dash-errors';
+      root.appendChild(errBox);
+    }
+    errBox.innerHTML = errsHtml;
+  } else if (errBox) {
+    errBox.remove();
+  }
+  paintCharts(stocks);
 }
 
 function schedule(open, intervalMs) {
@@ -470,15 +575,21 @@ async function load(manual) {
     document.getElementById('headline').textContent = sum.headline || '—';
     document.getElementById('heroReason').textContent = sum.reason || '';
     const stocks = d.stocks || [];
-    const html = stocks.map(renderStock).join('')
-      || `<div class="stock"><div class="err">${d.pending ? '等待首次采集…' : '无数据'}</div></div>`;
-    const errs = (d.errors || []).map(e => `<div class="err">${e.product_code}: ${e.error}</div>`).join('');
-    document.getElementById('root').innerHTML = html + errs;
-    paintCharts(stocks);
+    if (!stocks.length) {
+      destroyAllCharts();
+      paintedCodesKey = '';
+      document.getElementById('root').innerHTML =
+        `<div class="stock"><div class="err">${d.pending ? '等待首次采集…' : '无数据'}</div></div>`;
+    } else {
+      const errs = (d.errors || []).map(e => `<div class="err">${e.product_code}: ${e.error}</div>`).join('');
+      renderDashboard(stocks, errs);
+    }
     schedule(open && !d.kr_holiday, d.poll_interval_ms || POLL_MS_DEFAULT);
   } catch (e) {
     document.getElementById('headline').textContent = '加载失败';
     document.getElementById('heroReason').textContent = String(e);
+    destroyAllCharts();
+    paintedCodesKey = '';
     document.getElementById('root').innerHTML = `<div class="stock"><div class="err">${e}</div></div>`;
     if (manual) schedule(false);
   }

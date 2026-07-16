@@ -10,47 +10,60 @@
 | 期权雷达 | 美股 IV 与 Put / Call 年化排序 |
 | 交易决策 | 六层漏斗 + 本地交易日志（localStorage） |
 | 个股研报 | 九段 Markdown 研报 |
-| KOR 买卖动向 · 滤网 | 服务端每 20s 拉 Toss → SQLite；`/api/kr-dashboard` 只读库 |
+| KOR 买卖动向 · 滤网 | **collector** 每 20s 拉 Toss → SQLite；**web** 经内网读库 |
 
-## 本地运行
+## 进程角色
+
+| ROLE | 职责 |
+|------|------|
+| `all` | 单进程：采集 + 全量 API（本地默认） |
+| `collector` | 仅定时采集 + `/api/kr-*` 读库（挂 Volume，少部署） |
+| `web` | 面板与其它 API；`/api/kr-*` 转发到 `KR_UPSTREAM` |
+
+## 本地运行（单进程）
 
 ```bash
 pip3 install -r requirements.txt
 python3 cli.py serve
-# http://127.0.0.1:8787/  （端口可读环境变量 PORT）
+# http://127.0.0.1:8787/
 ```
 
-常用命令：
-
-```bash
-python3 cli.py quote 00700
-python3 cli.py research AAPL
-python3 cli.py market --years 5
-python3 cli.py options AAPL,MSFT,NVDA
-python3 cli.py kr-dashboard           # 读 SQLite
-python3 cli.py kr-dashboard --collect # 手动拉一次 Toss
-```
-
-需能访问外网。韩股休市日不采集（见 `src/kr_calendar.py`）。
-
-## Docker
+## Docker（推荐双服务）
 
 ```bash
 docker compose up -d --build
+# web: http://127.0.0.1:8787/
+# collector 内网 :8788，Volume 挂 ./data
 ```
 
-挂载 `./data`（SQLite）与 `./reports`。
+## Railway（双服务）
 
-## Railway
+同一镜像建两个 Service：
 
-- Dockerfile + `railway.toml`；探活 `/api/health`；监听 `PORT`
-- **必须挂 Volume，否则每次部署数据清空**：
-  1. Service → **Volumes** → Add Volume  
-  2. **Mount Path 填 `/app/data`**（不要写成 `/data`）  
-  3. 单实例；关闭 App Sleep  
-- 挂上后 `/api/health` 里 `persistence.persistent` 应为 `true`，`db_path` 在 Volume 内
-- 可选变量：`DATA_DIR`（默认 `/app/data`）；`BASIC_AUTH_USER` / `BASIC_AUTH_PASSWORD`
-- 内存建议 0.5–1 GB
+### 1) collector（稳定、少更新）
+- Variables：`ROLE=collector`，`DATA_DIR=/app/data`
+- **Volume Mount Path = `/app/data`**（只挂在 collector）
+- 单实例；关闭 App Sleep
+- 可不生成公网域名（仅 Private Networking）
+- 探活：`/api/health` → `role: collector`，`persistent: true`
+
+### 2) web（改 UI / 其它 API 时只 redeploy 这个）
+- Variables：
+  - `ROLE=web`
+  - `KR_UPSTREAM=http://<collector服务名>.railway.internal:${{collector.PORT}}`  
+    （在 Railway Variables 里用服务引用；或写死 collector 的 PORT）
+- **不挂** Volume
+- Generate Domain 给浏览器访问
+- 探活：`/api/health` → `role: web`，带 `kr_upstream`
+
+改面板代码时只部署 **web**，collector 继续采数，SQLite 不丢。
+
+### 注意（易踩坑）
+- **Variables 按服务分别设置**，不要两个服务共用同一个 `ROLE`
+- Volume **只挂 collector**；web 不要挂 `/app/data`
+- collector **不要** Generate Domain（仅内网）；公网只给 web
+- `KR_UPSTREAM` 指错时，web `/api/health` 里 `collector_ok` 为 `false`（web 自身仍 `ok: true`，避免误杀进程）
+- 鉴权：建议只给 **web** 配 Basic Auth；collector 内网可不配（若两边都配，密码须一致，因 web 会转发 Authorization）
 
 ## 研报 Prompt
 

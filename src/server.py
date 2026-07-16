@@ -1,4 +1,10 @@
-"""本地 HTTP 服务：面板 + JSON API。"""
+"""本地 HTTP 服务：面板 + JSON API。
+
+角色（环境变量 ROLE 或 --role）：
+- all：采集 + 全量 API（默认，本地单进程）
+- collector：仅定时采集 + KR 读库 API（独占 Volume）
+- web：面板与其它 API；KR 接口转发到 KR_UPSTREAM
+"""
 
 from __future__ import annotations
 
@@ -10,6 +16,9 @@ import sys
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
+
+import requests
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -22,12 +31,24 @@ PANELS = ROOT / "panels"
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("server")
 
-# /api/health 供 Railway 探活，不做鉴权
 PUBLIC_PATHS = frozenset({"/api/health"})
+VALID_ROLES = frozenset({"all", "web", "collector"})
+
+# 进程角色，main() 启动时设置
+ROLE = "all"
+
+
+def resolve_role(cli_role: str | None = None) -> str:
+    raw = (cli_role or os.environ.get("ROLE") or "all").strip().lower()
+    return raw if raw in VALID_ROLES else "all"
 
 
 def auth_configured() -> bool:
     return bool(os.environ.get("BASIC_AUTH_USER") and os.environ.get("BASIC_AUTH_PASSWORD"))
+
+
+def kr_upstream() -> str:
+    return (os.environ.get("KR_UPSTREAM") or "").strip().rstrip("/")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -38,6 +59,14 @@ class Handler(BaseHTTPRequestHandler):
         body = json.dumps(obj, ensure_ascii=False, default=str).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _raw(self, body: bytes, code=200, content_type="application/json; charset=utf-8"):
+        self.send_response(code)
+        self.send_header("Content-Type", content_type)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -66,6 +95,7 @@ class Handler(BaseHTTPRequestHandler):
     def _authorized(self, path: str) -> bool:
         if path in PUBLIC_PATHS:
             return True
+        # collector 仅内网调用时可不配鉴权；若配了则同样校验
         user = os.environ.get("BASIC_AUTH_USER") or ""
         password = os.environ.get("BASIC_AUTH_PASSWORD") or ""
         if not user or not password:
@@ -81,6 +111,52 @@ class Handler(BaseHTTPRequestHandler):
             return False
         u, p = raw.split(":", 1)
         return u == user and p == password
+
+    def _proxy_to_collector(self, full_path: str):
+        base = kr_upstream()
+        if not base:
+            return self._json(
+                {
+                    "error": "KR_UPSTREAM not set",
+                    "hint": "web 角色需指向 collector，如 http://collector:8788",
+                },
+                503,
+            )
+        url = base + full_path
+        headers = {}
+        auth = self.headers.get("Authorization")
+        if auth:
+            headers["Authorization"] = auth
+        last_err: Exception | None = None
+        # collector 冷启动时短暂重试，避免 compose/Railway 刚起来就 502
+        for attempt in range(3):
+            try:
+                r = requests.get(url, headers=headers, timeout=45)
+                return self._raw(
+                    r.content,
+                    code=r.status_code,
+                    content_type=r.headers.get("Content-Type") or "application/json",
+                )
+            except Exception as e:  # noqa: BLE001
+                last_err = e
+                if attempt < 2:
+                    import time
+
+                    time.sleep(0.4 * (attempt + 1))
+        return self._json(
+            {"error": f"collector unreachable: {last_err}", "upstream": base},
+            502,
+        )
+
+    def _kr_dashboard(self, qs: dict[str, list[str]]):
+        if ROLE == "web":
+            return self._proxy_to_collector(self.path)
+        codes = (qs.get("codes") or [""])[0]
+        code_list = [c.strip() for c in codes.split(",") if c.strip()] or None
+        try:
+            return self._json(kr_investor.build_dashboard(code_list))
+        except Exception as e:  # noqa: BLE001
+            return self._json({"error": str(e)}, 502)
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -98,6 +174,37 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authorized(path):
             return self._unauthorized()
         qs = urllib.parse.parse_qs(parsed.query)
+
+        if path == "/api/health":
+            from src import kr_intraday_db as IDB
+
+            body: dict[str, Any] = {
+                "ok": True,
+                "role": ROLE,
+                "auth": auth_configured(),
+                "collect_interval_sec": kr_investor.COLLECT_INTERVAL_SEC,
+            }
+            if ROLE in ("all", "collector"):
+                body["persistence"] = IDB.persistence_info()
+            if ROLE == "web":
+                up = kr_upstream()
+                body["kr_upstream"] = up or None
+                if up:
+                    try:
+                        hr = requests.get(up.rstrip("/") + "/api/health", timeout=3)
+                        body["collector_ok"] = hr.status_code == 200
+                    except Exception:  # noqa: BLE001
+                        body["collector_ok"] = False
+                else:
+                    body["collector_ok"] = False
+                # web 自身探活仍 ok=true，避免 Railway 因 collector 短暂不可达而杀 web
+            return self._json(body)
+
+        # collector：只暴露 KR 读库与 health
+        if ROLE == "collector":
+            if path in ("/api/kr-dashboard", "/api/kr-investor"):
+                return self._kr_dashboard(qs)
+            return self._json({"error": "collector only serves /api/kr-* and /api/health"}, 404)
 
         if path in ("/", "/index.html"):
             return self._file(PANELS / "index.html", "text/html; charset=utf-8")
@@ -122,36 +229,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"error": "symbol required"}, 400)
             p = research.run(sym)
             return self._json({"path": str(p), "markdown": p.read_text(encoding="utf-8")})
-        if path == "/api/kr-investor":
-            # 与 dashboard 一致读库，避免无人页直打 Toss
-            codes = (qs.get("codes") or [""])[0]
-            code_list = [c.strip() for c in codes.split(",") if c.strip()] or None
-            try:
-                return self._json(kr_investor.build_dashboard(code_list))
-            except Exception as e:  # noqa: BLE001
-                return self._json({"error": str(e)}, 502)
-        if path == "/api/kr-dashboard":
-            codes = (qs.get("codes") or [""])[0]
-            code_list = [c.strip() for c in codes.split(",") if c.strip()] or None
-            try:
-                return self._json(kr_investor.build_dashboard(code_list))
-            except Exception as e:  # noqa: BLE001
-                return self._json({"error": str(e)}, 502)
-        if path == "/api/health":
-            from src import kr_intraday_db as IDB
-
-            return self._json(
-                {
-                    "ok": True,
-                    "auth": auth_configured(),
-                    "collect_interval_sec": kr_investor.COLLECT_INTERVAL_SEC,
-                    "persistence": IDB.persistence_info(),
-                }
-            )
+        if path in ("/api/kr-investor", "/api/kr-dashboard"):
+            return self._kr_dashboard(qs)
 
         self.send_error(404)
 
     def do_POST(self):
+        if ROLE == "collector":
+            return self._json({"error": "collector is read-only HTTP"}, 405)
         parsed = urllib.parse.urlparse(self.path)
         if not self._authorized(parsed.path):
             return self._unauthorized()
@@ -173,7 +258,6 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def _lan_ips() -> list[str]:
-    """探测本机局域网 IPv4，供启动提示。"""
     import socket
 
     found: list[str] = []
@@ -196,25 +280,36 @@ def _lan_ips() -> list[str]:
 
 
 def resolve_port(cli_port: int | None = None) -> int:
-    """Railway 等平台注入 PORT；CLI --port 优先。"""
     if cli_port is not None:
         return int(cli_port)
     raw = os.environ.get("PORT") or "8787"
     return int(raw)
 
 
-def main(host: str = "0.0.0.0", port: int | None = None):
+def main(host: str = "0.0.0.0", port: int | None = None, role: str | None = None):
+    global ROLE
+    ROLE = resolve_role(role)
     listen_port = resolve_port(port)
+
     from src import kr_intraday_db as IDB
 
-    info = IDB.persistence_info()
-    print(f"SQLite: {info['db_path']} persistent={info['persistent']}")
-    if info.get("on_railway") and not info["persistent"]:
-        print(
-            "警告: Railway 未检测到 Volume。重部署会清空 SQLite。"
-            "请在 Volumes 将 Mount Path 设为 /app/data。"
-        )
-    kr_collector.start_collector(interval_sec=kr_investor.COLLECT_INTERVAL_SEC)
+    print(f"role={ROLE}")
+    if ROLE in ("all", "collector"):
+        info = IDB.persistence_info()
+        print(f"SQLite: {info['db_path']} persistent={info['persistent']}")
+        if info.get("on_railway") and not info["persistent"]:
+            print(
+                "警告: Railway 未检测到 Volume。重部署会清空 SQLite。"
+                "请将 Volume Mount Path 设为 /app/data（挂在 collector 服务上）。"
+            )
+        kr_collector.start_collector(interval_sec=kr_investor.COLLECT_INTERVAL_SEC)
+        print(f"采集: 盘中每 {kr_investor.COLLECT_INTERVAL_SEC}s → SQLite")
+    else:
+        up = kr_upstream()
+        print(f"KR_UPSTREAM={up or '(未设置)'}")
+        if not up:
+            print("警告: web 角色未设置 KR_UPSTREAM，/api/kr-* 将返回 503")
+
     server = ThreadingHTTPServer((host, listen_port), Handler)
     print(f"invest-workbench 监听: {host}:{listen_port}")
     print(f"  本机: http://127.0.0.1:{listen_port}/")
@@ -224,22 +319,18 @@ def main(host: str = "0.0.0.0", port: int | None = None):
             for ip in lan:
                 print(f"  局域网: http://{ip}:{listen_port}/")
         else:
-            print(f"  局域网: http://<本机IP>:{listen_port}/ （请在系统网络设置查看 IP）")
-    else:
-        print(f"  访问: http://{host}:{listen_port}/")
+            print(f"  局域网: http://<本机IP>:{listen_port}/")
     if auth_configured():
         print("  鉴权: Basic Auth 已启用（/api/health 除外）")
     else:
-        print("  鉴权: 未配置（设置 BASIC_AUTH_USER + BASIC_AUTH_PASSWORD 启用）")
-    print(
-        f"采集: 盘中每 {kr_investor.COLLECT_INTERVAL_SEC}s → SQLite；"
-        "单实例 + Volume:/app/data；勿开 App Sleep"
-    )
+        print("  鉴权: 未配置")
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nstopped")
-        kr_collector.stop_collector()
+        if ROLE in ("all", "collector"):
+            kr_collector.stop_collector()
 
 
 if __name__ == "__main__":

@@ -60,8 +60,7 @@ def cmd_kr_dashboard(args):
 def cmd_serve(args):
     from src.server import main as serve_main
 
-    # None → 读环境变量 PORT（Railway）
-    serve_main(args.host, args.port)
+    serve_main(args.host, args.port, role=getattr(args, "role", None))
 
 
 def main():
@@ -106,6 +105,12 @@ def main():
         type=int,
         default=None,
         help="端口；默认读环境变量 PORT，否则 8787（Railway 友好）",
+    )
+    s.add_argument(
+        "--role",
+        default=None,
+        choices=["all", "web", "collector"],
+        help="all=采集+全量API；collector=仅采集+KR读库；web=面板并转发KR到 KR_UPSTREAM（也可设环境变量 ROLE）",
     )
     s.set_defaults(func=cmd_serve)
 

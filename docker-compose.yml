@@ -1,18 +1,36 @@
 services:
-  workbench:
+  # 定时采集 + SQLite（少改、少部署）；独占 Volume
+  collector:
     build: .
     image: invest-workbench:latest
-    container_name: invest-workbench
+    container_name: invest-collector
+    restart: unless-stopped
+    expose:
+      - "8788"
+    volumes:
+      - ./data:/app/data
+    environment:
+      TZ: Asia/Shanghai
+      PORT: "8788"
+      ROLE: collector
+      DATA_DIR: /app/data
+
+  # 面板与其它 API；KOR 经内网转发到 collector
+  web:
+    build: .
+    image: invest-workbench:latest
+    container_name: invest-web
     restart: unless-stopped
     ports:
       - "8787:8787"
     volumes:
-      - ./data:/app/data
       - ./reports:/app/reports
     environment:
       TZ: Asia/Shanghai
       PORT: "8787"
-      DATA_DIR: /app/data
-      # 公网部署请设置（本地可留空关闭鉴权）
+      ROLE: web
+      KR_UPSTREAM: http://collector:8788
       # BASIC_AUTH_USER: me
       # BASIC_AUTH_PASSWORD: change-me
+    depends_on:
+      - collector

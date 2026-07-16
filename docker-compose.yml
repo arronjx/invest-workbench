@@ -12,6 +12,7 @@ services:
     environment:
       TZ: Asia/Shanghai
       PORT: "8787"
+      DATA_DIR: /app/data
       # 公网部署请设置（本地可留空关闭鉴权）
       # BASIC_AUTH_USER: me
       # BASIC_AUTH_PASSWORD: change-me

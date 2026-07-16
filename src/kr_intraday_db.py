@@ -3,16 +3,58 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-DB_PATH = ROOT / "data" / "kr_intraday.sqlite"
+
+
+def resolve_data_dir() -> Path:
+    """数据目录：优先 DATA_DIR，其次 Railway Volume，否则 ./data。
+
+    Railway 重部署会清空容器层；必须把 Volume 挂到该路径（推荐 /app/data）。
+    """
+    explicit = (os.environ.get("DATA_DIR") or "").strip()
+    if explicit:
+        return Path(explicit)
+    vol = (os.environ.get("RAILWAY_VOLUME_MOUNT_PATH") or "").strip()
+    if vol:
+        return Path(vol)
+    return ROOT / "data"
+
+
+DATA_DIR = resolve_data_dir()
+DB_PATH = DATA_DIR / "kr_intraday.sqlite"
 
 CST = timezone(timedelta(hours=8))
 BUCKET_MINUTES = 5
+
+
+def db_display_path() -> str:
+    try:
+        return str(DB_PATH.relative_to(ROOT))
+    except ValueError:
+        return str(DB_PATH)
+
+
+def persistence_info() -> dict[str, Any]:
+    vol = (os.environ.get("RAILWAY_VOLUME_MOUNT_PATH") or "").strip()
+    on_railway = bool(
+        os.environ.get("RAILWAY_ENVIRONMENT")
+        or os.environ.get("RAILWAY_PROJECT_ID")
+        or os.environ.get("RAILWAY_SERVICE_ID")
+    )
+    # Railway 上只有挂了 Volume 才算持久；本地/compose 绑定盘视为持久
+    return {
+        "data_dir": str(DATA_DIR),
+        "db_path": str(DB_PATH),
+        "railway_volume_mount": vol or None,
+        "on_railway": on_railway,
+        "persistent": bool(vol) if on_railway else True,
+    }
 
 
 def _connect() -> sqlite3.Connection:
@@ -220,7 +262,7 @@ def attach_intraday_from_db(stocks: list[dict[str, Any]]) -> list[dict[str, Any]
             "bucket_minutes": BUCKET_MINUTES,
             "timezone": "UTC+8",
             "points": load_day_series(code, trade_date),
-            "db": str(DB_PATH.relative_to(ROOT)),
+            "db": db_display_path(),
             "source": "sqlite",
         }
         out.append(stock)

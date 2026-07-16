@@ -670,7 +670,7 @@ def collect_dashboard(codes: list[str] | None = None) -> dict[str, Any]:
                 "bucket_minutes": IDB.BUCKET_MINUTES,
                 "timezone": "UTC+8",
                 "points": IDB.record_from_signal(stock),
-                "db": str(IDB.DB_PATH.relative_to(IDB.ROOT)),
+                "db": IDB.db_display_path(),
                 "source": "collector",
             }
             stocks.append(stock)

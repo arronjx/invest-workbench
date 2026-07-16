@@ -138,11 +138,14 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:  # noqa: BLE001
                 return self._json({"error": str(e)}, 502)
         if path == "/api/health":
+            from src import kr_intraday_db as IDB
+
             return self._json(
                 {
                     "ok": True,
                     "auth": auth_configured(),
                     "collect_interval_sec": kr_investor.COLLECT_INTERVAL_SEC,
+                    "persistence": IDB.persistence_info(),
                 }
             )
 
@@ -202,6 +205,15 @@ def resolve_port(cli_port: int | None = None) -> int:
 
 def main(host: str = "0.0.0.0", port: int | None = None):
     listen_port = resolve_port(port)
+    from src import kr_intraday_db as IDB
+
+    info = IDB.persistence_info()
+    print(f"SQLite: {info['db_path']} persistent={info['persistent']}")
+    if info.get("on_railway") and not info["persistent"]:
+        print(
+            "警告: Railway 未检测到 Volume。重部署会清空 SQLite。"
+            "请在 Volumes 将 Mount Path 设为 /app/data。"
+        )
     kr_collector.start_collector(interval_sec=kr_investor.COLLECT_INTERVAL_SEC)
     server = ThreadingHTTPServer((host, listen_port), Handler)
     print(f"invest-workbench 监听: {host}:{listen_port}")

@@ -44,8 +44,12 @@ docker compose up -d --build
 ## Railway
 
 - Dockerfile + `railway.toml`；探活 `/api/health`；监听 `PORT`
-- **Volume** 挂 `/app/data`；**单实例**；不要开 App Sleep
-- 建议设置 `BASIC_AUTH_USER` / `BASIC_AUTH_PASSWORD`（未设则公开）
+- **必须挂 Volume，否则每次部署数据清空**：
+  1. Service → **Volumes** → Add Volume  
+  2. **Mount Path 填 `/app/data`**（不要写成 `/data`）  
+  3. 单实例；关闭 App Sleep  
+- 挂上后 `/api/health` 里 `persistence.persistent` 应为 `true`，`db_path` 在 Volume 内
+- 可选变量：`DATA_DIR`（默认 `/app/data`）；`BASIC_AUTH_USER` / `BASIC_AUTH_PASSWORD`
 - 内存建议 0.5–1 GB
 
 ## 研报 Prompt

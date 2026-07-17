@@ -192,22 +192,30 @@ def load_day_series(code: str, trade_date: str | None = None) -> list[dict[str, 
     ]
 
 
-def record_from_signal(stock: dict[str, Any]) -> list[dict[str, Any]]:
+def record_from_signal(
+    stock: dict[str, Any],
+    *,
+    expected_trade_date: str | None = None,
+    write: bool = True,
+) -> list[dict[str, Any]]:
     """从单标 signal 落库并返回当日序列。"""
     code = stock.get("code") or ""
     latest = stock.get("latest") or {}
     today = (stock.get("day_scores") or [{}])[0]
     price = latest.get("price") or {}
     trade_date = latest.get("base_date") or today.get("base_date")
-    upsert_sample(
-        code,
-        foreign_net=today.get("foreign_net"),
-        organ_net=today.get("organ_net"),
-        change_pct=price.get("change_pct"),
-        close_price=price.get("close"),
-        trade_date=trade_date,
-    )
-    return load_day_series(code, trade_date)
+    load_date = expected_trade_date or trade_date
+    # 开盘后 Toss 若仍返回上一交易日，不能把旧累计数据写进今日分时桶。
+    if write and trade_date and load_date and str(trade_date)[:10] == str(load_date)[:10]:
+        upsert_sample(
+            code,
+            foreign_net=today.get("foreign_net"),
+            organ_net=today.get("organ_net"),
+            change_pct=price.get("change_pct"),
+            close_price=price.get("close"),
+            trade_date=trade_date,
+        )
+    return load_day_series(code, load_date)
 
 
 def save_dashboard_snapshot(payload: dict[str, Any], *, session_open: bool) -> str:
@@ -257,10 +265,12 @@ def attach_intraday_from_db(stocks: list[dict[str, Any]]) -> list[dict[str, Any]
         code = stock.get("code") or ""
         latest = stock.get("latest") or {}
         today = (stock.get("day_scores") or [{}])[0]
-        trade_date = latest.get("base_date") or today.get("base_date")
+        intraday = stock.get("intraday") or {}
+        trade_date = intraday.get("trade_date") or latest.get("base_date") or today.get("base_date")
         stock["intraday"] = {
             "bucket_minutes": BUCKET_MINUTES,
             "timezone": "UTC+8",
+            "trade_date": trade_date,
             "points": load_day_series(code, trade_date),
             "db": db_display_path(),
             "source": "sqlite",

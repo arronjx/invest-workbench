@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 
 from src import kr_investor
 
@@ -12,6 +13,7 @@ log = logging.getLogger("kr_collector")
 _thread: threading.Thread | None = None
 _stop = threading.Event()
 _lock = threading.Lock()
+_last_paused_probe_mono = 0.0
 
 
 def collect_tick(codes: list[str] | None = None) -> dict:
@@ -21,7 +23,12 @@ def collect_tick(codes: list[str] | None = None) -> dict:
 
 
 def _loop(interval_sec: float, codes: list[str] | None) -> None:
-    # 启动立即采一次，保证 API 有快照可读
+    global _last_paused_probe_mono
+
+    if kr_investor.restore_inferred_holiday_from_snapshot():
+        log.info("kr collector: restored inferred holiday pause from snapshot")
+
+    # 启动立即采一次，保证 API 有快照可读（也可用于误判自愈）
     try:
         collect_tick(codes)
         log.info("kr collector: initial snapshot ok")
@@ -32,6 +39,18 @@ def _loop(interval_sec: float, codes: list[str] | None) -> None:
         try:
             # 盘中采满频率；收盘后也按同间隔温更新（失败可忽略），便于隔日开盘前仍有数据
             if kr_investor.is_kr_cash_session():
+                if kr_investor.is_collection_paused_today():
+                    now_m = time.monotonic()
+                    probe_every = float(kr_investor.PAUSED_PROBE_INTERVAL_SEC)
+                    if now_m - _last_paused_probe_mono < probe_every:
+                        continue
+                    _last_paused_probe_mono = now_m
+                    collect_tick(codes)
+                    if kr_investor.is_collection_paused_today():
+                        log.info("kr collector: paused probe still holiday")
+                    else:
+                        log.info("kr collector: inferred holiday cleared, resume full collect")
+                    continue
                 collect_tick(codes)
             else:
                 # 非盘中：每轮只在没有快照时补一次，其余跳过省出站

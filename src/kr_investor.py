@@ -24,6 +24,14 @@ KST = timezone(timedelta(hours=9))
 # 韩国交易所现金盘：09:00–15:30 KST（= UTC+8 的 08:00–14:30）
 KR_OPEN = time(9, 0)
 KR_CLOSE = time(15, 30)
+BASEDATE_STALE_GRACE_MIN = 20
+BASEDATE_STALE_CONFIRM_TICKS = 3
+BASEDATE_STALE_MIN_SAMPLES = 2  # 至少两只有 baseDate 才可推断休市
+PAUSED_PROBE_INTERVAL_SEC = 300  # 推断休市后低频探活，便于误判自愈
+
+_inferred_holiday_date: str | None = None
+_stale_basedate_date: str | None = None
+_stale_basedate_ticks = 0
 
 WATCHLIST = [
     {"code": "000660", "product_code": "A000660", "name": "SK海力士", "name_en": "SK Hynix"},
@@ -64,6 +72,127 @@ def is_kr_cash_session(now: datetime | None = None) -> bool:
         return False
     t = dt.time()
     return KR_OPEN <= t <= KR_CLOSE
+
+
+def is_collection_paused_today(now: datetime | None = None) -> bool:
+    """日历漏休市时，collector 只暂停当天，次日自动恢复。"""
+    dt = now.astimezone(KST) if now else datetime.now(KST)
+    return _inferred_holiday_date == dt.date().isoformat()
+
+
+def _clear_inferred_holiday_state() -> None:
+    global _inferred_holiday_date, _stale_basedate_date, _stale_basedate_ticks
+    _inferred_holiday_date = None
+    _stale_basedate_date = None
+    _stale_basedate_ticks = 0
+
+
+def restore_inferred_holiday_from_snapshot() -> bool:
+    """进程重启后，从当日快照恢复推断休市暂停状态。"""
+    global _inferred_holiday_date
+    from src import kr_intraday_db as IDB
+
+    snap = IDB.load_dashboard_snapshot()
+    if not snap:
+        return False
+    today = datetime.now(KST).date().isoformat()
+    if snap.get("kr_holiday_inferred") and snap.get("kr_holiday_inferred_date") == today:
+        _inferred_holiday_date = today
+        return True
+    return False
+
+
+def _opening_grace_elapsed(now: datetime) -> bool:
+    dt = now.astimezone(KST)
+    open_dt = dt.replace(hour=KR_OPEN.hour, minute=KR_OPEN.minute, second=0, microsecond=0)
+    return dt >= open_dt + timedelta(minutes=BASEDATE_STALE_GRACE_MIN)
+
+
+def _latest_base_date(stock: dict[str, Any]) -> str | None:
+    latest = stock.get("latest") or {}
+    today = (stock.get("day_scores") or [{}])[0]
+    raw = latest.get("base_date") or today.get("base_date")
+    return str(raw)[:10] if raw else None
+
+
+def _update_inferred_holiday(
+    stocks: list[dict[str, Any]],
+    *,
+    now: datetime,
+    session_open: bool,
+) -> dict[str, Any]:
+    """开盘后一段时间仍全是旧 baseDate，则推断当天休市并暂停采集。
+
+    仅用成功解析到 baseDate 的标的；若之后出现今日 baseDate 则清除暂停（自愈）。
+    """
+    global _inferred_holiday_date, _stale_basedate_date, _stale_basedate_ticks
+
+    today = now.astimezone(KST).date().isoformat()
+    base_dates = [d for d in (_latest_base_date(s) for s in stocks) if d]
+    meta = {
+        "base_dates": sorted(set(base_dates)),
+        "stale_basedate_confirm_ticks": BASEDATE_STALE_CONFIRM_TICKS,
+        "stale_basedate_grace_min": BASEDATE_STALE_GRACE_MIN,
+        "stale_basedate_min_samples": BASEDATE_STALE_MIN_SAMPLES,
+    }
+
+    # 自愈：任一成功标的已切到今日 → 立即恢复采集
+    if any(d == today for d in base_dates):
+        was_paused = _inferred_holiday_date == today
+        _clear_inferred_holiday_state()
+        return {
+            "kr_holiday_inferred": False,
+            "kr_holiday_inferred_date": None,
+            "stale_basedate_ticks": 0,
+            "inferred_holiday_cleared": was_paused,
+            **meta,
+        }
+
+    if _inferred_holiday_date == today:
+        return {
+            "kr_holiday_inferred": True,
+            "kr_holiday_inferred_date": today,
+            "market_closed_reason": "Toss baseDate 未切到今日，已暂停今日采集",
+            "stale_basedate_ticks": _stale_basedate_ticks,
+            **meta,
+        }
+
+    stale_today = (
+        session_open
+        and _opening_grace_elapsed(now)
+        and len(base_dates) >= BASEDATE_STALE_MIN_SAMPLES
+        and all(d != today for d in base_dates)
+    )
+    if not stale_today:
+        if session_open and _opening_grace_elapsed(now):
+            _stale_basedate_date = None
+            _stale_basedate_ticks = 0
+        return {
+            "kr_holiday_inferred": False,
+            "kr_holiday_inferred_date": None,
+            "stale_basedate_ticks": _stale_basedate_ticks,
+            **meta,
+        }
+
+    if _stale_basedate_date != today:
+        _stale_basedate_date = today
+        _stale_basedate_ticks = 0
+    _stale_basedate_ticks += 1
+    inferred = _stale_basedate_ticks >= BASEDATE_STALE_CONFIRM_TICKS
+    if inferred:
+        _inferred_holiday_date = today
+
+    return {
+        "kr_holiday_inferred": inferred,
+        "kr_holiday_inferred_date": today if inferred else None,
+        "market_closed_reason": (
+            "Toss baseDate 未切到今日，已暂停今日采集"
+            if inferred
+            else "Toss baseDate 仍非今日，等待连续确认"
+        ),
+        "stale_basedate_ticks": _stale_basedate_ticks,
+        **meta,
+    }
 
 
 def snapshot_freshness(
@@ -659,39 +788,64 @@ def collect_dashboard(codes: list[str] | None = None) -> dict[str, Any]:
     from src import kr_intraday_db as IDB
 
     now = datetime.now(KST)
+    calendar_holiday = kr_calendar.is_kr_holiday(now)
     session_open = is_kr_cash_session(now)
+    today_kst = now.date().isoformat()
     stocks = []
     errors = []
     for w in _resolve_watch(codes):
         try:
             sig = build_signal(w["product_code"], size=8)
             stock = {**w, **sig}
-            stock["intraday"] = {
-                "bucket_minutes": IDB.BUCKET_MINUTES,
-                "timezone": "UTC+8",
-                "points": IDB.record_from_signal(stock),
-                "db": IDB.db_display_path(),
-                "source": "collector",
-            }
             stocks.append(stock)
         except Exception as e:  # noqa: BLE001
             errors.append({"product_code": w["product_code"], "error": str(e)})
 
+    inferred = _update_inferred_holiday(stocks, now=now, session_open=session_open)
+    inferred_holiday = bool(inferred.get("kr_holiday_inferred"))
+    effective_holiday = calendar_holiday or inferred_holiday
+    effective_session_open = session_open and not effective_holiday
+
+    for stock in stocks:
+        points = IDB.record_from_signal(
+            stock,
+            expected_trade_date=today_kst if session_open else None,
+            write=effective_session_open,
+        )
+        stock["intraday"] = {
+            "bucket_minutes": IDB.BUCKET_MINUTES,
+            "timezone": "UTC+8",
+            "trade_date": today_kst if session_open else _latest_base_date(stock),
+            "points": points,
+            "db": IDB.db_display_path(),
+            "source": "collector",
+        }
+
+    summary = _dashboard_summary(stocks)
+    if inferred_holiday:
+        summary = {
+            "headline": "韩股今日疑似休市 · 已暂停采集",
+            "focus": None,
+            "reason": inferred.get("market_closed_reason"),
+        }
+
     pack = {
         "fetched_at": D.now_iso(),
         "timezone": "UTC+8",
-        "kr_session_open": session_open,
-        "kr_holiday": kr_calendar.is_kr_holiday(now),
+        "kr_session_open": effective_session_open,
+        "kr_holiday": effective_holiday,
+        "kr_calendar_holiday": calendar_holiday,
+        **inferred,
         "collect_interval_sec": COLLECT_INTERVAL_SEC,
-        "poll_interval_ms": UI_POLL_INTERVAL_MS if session_open else None,
+        "poll_interval_ms": UI_POLL_INTERVAL_MS if effective_session_open else None,
         "data_source": "sqlite",
         "source": TOSS_TREND_URL,
-        "summary": _dashboard_summary(stocks),
+        "summary": summary,
         "rule": RULE_META,
         "stocks": stocks,
         "errors": errors,
     }
-    sampled_at = IDB.save_dashboard_snapshot(pack, session_open=session_open)
+    sampled_at = IDB.save_dashboard_snapshot(pack, session_open=effective_session_open)
     pack["sampled_at"] = sampled_at
     return pack
 
@@ -701,6 +855,7 @@ def build_dashboard(codes: list[str] | None = None) -> dict[str, Any]:
     from src import kr_intraday_db as IDB
 
     now = datetime.now(KST)
+    calendar_holiday = kr_calendar.is_kr_holiday(now)
     session_open = is_kr_cash_session(now)
     snap = IDB.load_dashboard_snapshot()
     if snap is None:
@@ -708,7 +863,9 @@ def build_dashboard(codes: list[str] | None = None) -> dict[str, Any]:
             "fetched_at": D.now_iso(),
             "timezone": "UTC+8",
             "kr_session_open": session_open,
-            "kr_holiday": kr_calendar.is_kr_holiday(now),
+            "kr_holiday": calendar_holiday,
+            "kr_calendar_holiday": calendar_holiday,
+            "kr_holiday_inferred": False,
             "collect_interval_sec": COLLECT_INTERVAL_SEC,
             "poll_interval_ms": UI_POLL_INTERVAL_MS if session_open else None,
             "data_source": "sqlite",
@@ -736,16 +893,30 @@ def build_dashboard(codes: list[str] | None = None) -> dict[str, Any]:
         ]
     stocks = IDB.attach_intraday_from_db(stocks)
     sampled_at = snap.get("_snapshot_sampled_at")
-    fresh = snapshot_freshness(sampled_at, session_open=session_open, now=now)
+    today_kst = now.date().isoformat()
+    inferred_today = bool(snap.get("kr_holiday_inferred")) and (
+        snap.get("kr_holiday_inferred_date") == today_kst
+    )
+    effective_holiday = calendar_holiday or inferred_today
+    effective_session_open = session_open and not effective_holiday
+    fresh = snapshot_freshness(sampled_at, session_open=effective_session_open, now=now)
 
     return {
         "fetched_at": snap.get("fetched_at") or D.now_iso(),
         "sampled_at": sampled_at,
         "timezone": "UTC+8",
-        "kr_session_open": session_open,
-        "kr_holiday": kr_calendar.is_kr_holiday(now),
+        "kr_session_open": effective_session_open,
+        "kr_holiday": effective_holiday,
+        "kr_calendar_holiday": calendar_holiday,
+        "kr_holiday_inferred": inferred_today,
+        "kr_holiday_inferred_date": snap.get("kr_holiday_inferred_date"),
+        "market_closed_reason": snap.get("market_closed_reason") if inferred_today else None,
+        "base_dates": snap.get("base_dates"),
+        "stale_basedate_ticks": snap.get("stale_basedate_ticks"),
+        "stale_basedate_confirm_ticks": snap.get("stale_basedate_confirm_ticks"),
+        "stale_basedate_grace_min": snap.get("stale_basedate_grace_min"),
         "collect_interval_sec": COLLECT_INTERVAL_SEC,
-        "poll_interval_ms": UI_POLL_INTERVAL_MS if session_open else None,
+        "poll_interval_ms": UI_POLL_INTERVAL_MS if effective_session_open else None,
         "data_source": "sqlite",
         "source": snap.get("source") or TOSS_TREND_URL,
         "summary": snap.get("summary") or _dashboard_summary(stocks),

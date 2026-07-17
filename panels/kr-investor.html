@@ -205,7 +205,7 @@ const retailLabel = {
   unknown: '—',
 };
 
-function renderStock(s) {
+function renderStock(s, marketClosed = false) {
   const L = s.latest || {};
   const P = L.price || {};
   const cols = L.columns || [];
@@ -214,7 +214,7 @@ function renderStock(s) {
   const today = (s.day_scores || [])[0] || {};
   const ch = today.checks || {};
   const chCls = netCls(P.change);
-  const status = L.in_market_time ? '盘中' : '收盘';
+  const status = marketClosed ? '休市' : (L.in_market_time ? '盘中' : '收盘');
   const estTag = (L.individual_estimated || today.retail_estimated)
     ? '<span class="tag-est">个人·残差估</span>' : '';
   const inten = f.intensity != null ? (f.intensity * 100).toFixed(2) + '%' : '—';
@@ -242,6 +242,15 @@ function renderStock(s) {
     `<td>${c.estimated ? '—' : fmtPlain(c.buy)}</td>`).join('')}</tr>`;
   const rowPct = `<tr><td class="label">成交占比*</td>${cols.map(c =>
     `<td>${c.estimated ? '—' : fmtPct(c.volume_pct)}</td>`).join('')}</tr>`;
+  const chartBlock = marketClosed ? '' : `
+    <div class="chart-wrap">
+      <p class="cap">分时（5 分钟桶 · SQLite）· 服务端 20s 采集 · X 轴 CST 08:00–14:30 · 点 ${(s.intraday && s.intraday.points || []).length}</p>
+      <canvas id="chart-${s.code}" height="200"></canvas>
+    </div>`;
+  const flowBlock = marketClosed ? '' : `
+    <div class="table-wrap flow">
+      <table><thead>${th}</thead><tbody>${rowNet}${rowSell}${rowBuy}${rowPct}</tbody></table>
+    </div>`;
 
   return `<section class="stock" id="stock-${s.code}" data-code="${s.code}">
     <div class="stock-head">
@@ -274,13 +283,8 @@ function renderStock(s) {
       </div>
       <p class="score-tip">${r.reason || ''}</p>
     </div>
-    <div class="chart-wrap">
-      <p class="cap">分时（5 分钟桶 · SQLite）· 服务端 20s 采集 · X 轴 CST 08:00–14:30 · 点 ${(s.intraday && s.intraday.points || []).length}</p>
-      <canvas id="chart-${s.code}" height="200"></canvas>
-    </div>
-    <div class="table-wrap flow">
-      <table><thead>${th}</thead><tbody>${rowNet}${rowSell}${rowBuy}${rowPct}</tbody></table>
-    </div>
+    ${chartBlock}
+    ${flowBlock}
     <div class="hist">
       <p class="cap">历史诊断 <span style="font-weight:400">· 数据来源 Toss trading-trend（盘中个人净买为残差估算时标「估」）</span></p>
       <table>
@@ -318,12 +322,12 @@ function destroyAllCharts() {
 }
 
 /** 同标的刷新：保留 .chart-wrap / canvas，只替换其余 DOM，避免图表跳动 */
-function patchStockDom(stocks) {
+function patchStockDom(stocks, marketClosed = false) {
   (stocks || []).forEach(s => {
     const sec = document.getElementById('stock-' + s.code);
     if (!sec) return;
     const tmp = document.createElement('div');
-    tmp.innerHTML = renderStock(s);
+    tmp.innerHTML = renderStock(s, marketClosed);
     const neu = tmp.firstElementChild;
     if (!neu) return;
     const oldChart = sec.querySelector('.chart-wrap');
@@ -514,15 +518,15 @@ function paintCharts(stocks) {
   });
 }
 
-function renderDashboard(stocks, errsHtml) {
+function renderDashboard(stocks, errsHtml, marketClosed = false) {
   const root = document.getElementById('root');
-  const key = stockCodesKey(stocks);
+  const key = stockCodesKey(stocks) + (marketClosed ? ':closed' : ':open');
   const canPatch = key && key === paintedCodesKey && root.querySelector('.stock');
   if (canPatch) {
-    patchStockDom(stocks);
+    patchStockDom(stocks, marketClosed);
   } else {
     destroyAllCharts();
-    const html = (stocks || []).map(renderStock).join('')
+    const html = (stocks || []).map(s => renderStock(s, marketClosed)).join('')
       || `<div class="stock"><div class="err">无数据</div></div>`;
     root.innerHTML = html;
     paintedCodesKey = key;
@@ -539,7 +543,11 @@ function renderDashboard(stocks, errsHtml) {
   } else if (errBox) {
     errBox.remove();
   }
-  paintCharts(stocks);
+  if (marketClosed) {
+    destroyAllCharts();
+  } else {
+    paintCharts(stocks);
+  }
 }
 
 function schedule(open, intervalMs) {
@@ -555,13 +563,13 @@ async function load(manual) {
     const open = !!d.kr_session_open;
     const collectSec = d.collect_interval_sec || 20;
     const el = document.getElementById('session');
-    if (d.stale) {
+    if (d.kr_holiday) {
+      el.textContent = d.kr_holiday_inferred ? '韩股疑似休市 · 已暂停采集' : '韩股休市日 · 不采集';
+      el.className = 'pill off';
+    } else if (d.stale) {
       const age = d.data_age_sec != null ? Math.round(d.data_age_sec) + 's 前' : '未知';
       el.textContent = `数据陈旧 · 快照 ${age}`;
       el.className = 'pill warn';
-    } else if (d.kr_holiday) {
-      el.textContent = '韩股休市日 · 不采集';
-      el.className = 'pill off';
     } else if (open) {
       el.textContent = `KOR 盘中 · 服务端 ${collectSec}s 采集 · 读库`;
       el.className = 'pill on';
@@ -582,7 +590,7 @@ async function load(manual) {
         `<div class="stock"><div class="err">${d.pending ? '等待首次采集…' : '无数据'}</div></div>`;
     } else {
       const errs = (d.errors || []).map(e => `<div class="err">${e.product_code}: ${e.error}</div>`).join('');
-      renderDashboard(stocks, errs);
+      renderDashboard(stocks, errs, !!d.kr_holiday);
     }
     schedule(open && !d.kr_holiday, d.poll_interval_ms || POLL_MS_DEFAULT);
   } catch (e) {

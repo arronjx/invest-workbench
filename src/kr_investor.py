@@ -832,6 +832,7 @@ def collect_dashboard(codes: list[str] | None = None) -> dict[str, Any]:
     pack = {
         "fetched_at": D.now_iso(),
         "timezone": "UTC+8",
+        "kr_today": today_kst,
         "kr_session_open": effective_session_open,
         "kr_holiday": effective_holiday,
         "kr_calendar_holiday": calendar_holiday,
@@ -858,10 +859,12 @@ def build_dashboard(codes: list[str] | None = None) -> dict[str, Any]:
     calendar_holiday = kr_calendar.is_kr_holiday(now)
     session_open = is_kr_cash_session(now)
     snap = IDB.load_dashboard_snapshot()
+    today_kst = now.date().isoformat()
     if snap is None:
         return {
             "fetched_at": D.now_iso(),
             "timezone": "UTC+8",
+            "kr_today": today_kst,
             "kr_session_open": session_open,
             "kr_holiday": calendar_holiday,
             "kr_calendar_holiday": calendar_holiday,
@@ -893,7 +896,6 @@ def build_dashboard(codes: list[str] | None = None) -> dict[str, Any]:
         ]
     stocks = IDB.attach_intraday_from_db(stocks)
     sampled_at = snap.get("_snapshot_sampled_at")
-    today_kst = now.date().isoformat()
     inferred_today = bool(snap.get("kr_holiday_inferred")) and (
         snap.get("kr_holiday_inferred_date") == today_kst
     )
@@ -905,6 +907,7 @@ def build_dashboard(codes: list[str] | None = None) -> dict[str, Any]:
         "fetched_at": snap.get("fetched_at") or D.now_iso(),
         "sampled_at": sampled_at,
         "timezone": "UTC+8",
+        "kr_today": today_kst,
         "kr_session_open": effective_session_open,
         "kr_holiday": effective_holiday,
         "kr_calendar_holiday": calendar_holiday,

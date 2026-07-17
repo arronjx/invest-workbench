@@ -64,6 +64,9 @@ docker compose up -d --build
 - collector **不要** Generate Domain（仅内网）；公网只给 web
 - `KR_UPSTREAM` 指错时，web `/api/health` 里 `collector_ok` 为 `false`（web 自身仍 `ok: true`，避免误杀进程）
 - 鉴权：建议只给 **web** 配 Basic Auth；collector 内网可不配（若两边都配，密码须一致，因 web 会转发 Authorization）
+- **Redeploy ≠ 最新代码**：Redeploy 只会重建当前部署的同一个 commit；要上最新需等 Auto Deploy，或向 `main` 推送新 commit
+- **Auto Deploy 不回放历史**：刚打开开关不会自动部署已存在的 commit，需再 push 一次才会触发
+- collector / web 的 Auto Deploy、Source 分支需分别确认；只开 web 时，collector 会一直停在旧版本
 
 ## 研报 Prompt
 

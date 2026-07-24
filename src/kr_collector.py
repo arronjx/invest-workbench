@@ -1,4 +1,4 @@
-"""KOR 服务端定时采集：每 20s 拉 Toss，写入 SQLite。"""
+"""KOR 服务端定时采集：现金盘 20s；盘后至 16:30 CST 降频写入 SQLite。"""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ _thread: threading.Thread | None = None
 _stop = threading.Event()
 _lock = threading.Lock()
 _last_paused_probe_mono = 0.0
+_last_collect_mono = 0.0
 
 
 def collect_tick(codes: list[str] | None = None) -> dict:
@@ -23,7 +24,7 @@ def collect_tick(codes: list[str] | None = None) -> dict:
 
 
 def _loop(interval_sec: float, codes: list[str] | None) -> None:
-    global _last_paused_probe_mono
+    global _last_paused_probe_mono, _last_collect_mono
 
     if kr_investor.restore_inferred_holiday_from_snapshot():
         log.info("kr collector: restored inferred holiday pause from snapshot")
@@ -31,33 +32,45 @@ def _loop(interval_sec: float, codes: list[str] | None) -> None:
     # 启动立即采一次，保证 API 有快照可读（也可用于误判自愈）
     try:
         collect_tick(codes)
+        _last_collect_mono = time.monotonic()
         log.info("kr collector: initial snapshot ok")
     except Exception:  # noqa: BLE001
         log.exception("kr collector: initial collect failed")
 
-    while not _stop.wait(interval_sec):
+    # 主循环按最短间隔醒来，再按当前窗口决定是否真正采集
+    wake = min(float(interval_sec), float(kr_investor.COLLECT_INTERVAL_SEC))
+    while not _stop.wait(wake):
         try:
-            # 盘中采满频率；收盘后也按同间隔温更新（失败可忽略），便于隔日开盘前仍有数据
-            if kr_investor.is_kr_cash_session():
-                if kr_investor.is_collection_paused_today():
-                    now_m = time.monotonic()
-                    probe_every = float(kr_investor.PAUSED_PROBE_INTERVAL_SEC)
-                    if now_m - _last_paused_probe_mono < probe_every:
-                        continue
-                    _last_paused_probe_mono = now_m
-                    collect_tick(codes)
-                    if kr_investor.is_collection_paused_today():
-                        log.info("kr collector: paused probe still holiday")
-                    else:
-                        log.info("kr collector: inferred holiday cleared, resume full collect")
-                    continue
-                collect_tick(codes)
-            else:
-                # 非盘中：每轮只在没有快照时补一次，其余跳过省出站
+            in_window = kr_investor.is_kr_collect_window()
+            if not in_window:
+                # 采集窗外：仅在没有快照时补一次
                 from src import kr_intraday_db as IDB
 
                 if IDB.load_dashboard_snapshot() is None:
                     collect_tick(codes)
+                    _last_collect_mono = time.monotonic()
+                continue
+
+            if kr_investor.is_collection_paused_today():
+                now_m = time.monotonic()
+                probe_every = float(kr_investor.PAUSED_PROBE_INTERVAL_SEC)
+                if now_m - _last_paused_probe_mono < probe_every:
+                    continue
+                _last_paused_probe_mono = now_m
+                collect_tick(codes)
+                _last_collect_mono = time.monotonic()
+                if kr_investor.is_collection_paused_today():
+                    log.info("kr collector: paused probe still holiday")
+                else:
+                    log.info("kr collector: inferred holiday cleared, resume full collect")
+                continue
+
+            need = float(kr_investor.collect_interval_sec())
+            now_m = time.monotonic()
+            if now_m - _last_collect_mono < need:
+                continue
+            collect_tick(codes)
+            _last_collect_mono = time.monotonic()
         except Exception:  # noqa: BLE001
             log.exception("kr collector: tick failed")
 
@@ -79,7 +92,11 @@ def start_collector(
         daemon=True,
     )
     _thread.start()
-    log.info("kr collector started interval=%ss", sec)
+    log.info(
+        "kr collector started cash=%ss after=%ss until=16:30 CST",
+        kr_investor.COLLECT_INTERVAL_SEC,
+        kr_investor.COLLECT_INTERVAL_AFTER_SEC,
+    )
 
 
 def stop_collector() -> None:

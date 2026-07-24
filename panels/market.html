@@ -5,22 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>大盘估值分位</title>
 <style>
-  :root { --bg:#f4f7f6; --ink:#14201d; --muted:#6b7280; --line:#dbe5e1; --card:#fff; --accent:#0f766e; }
+  :root { color-scheme:dark; --bg:#0f1115; --ink:#e8eaed; --muted:#9aa0a6; --line:#2a2f3a; --card:#181b21; --accent:#2dd4bf; }
   body { margin:0; font-family:"IBM Plex Sans","PingFang SC",sans-serif; background:var(--bg); color:var(--ink); }
-  header { padding:18px 22px; border-bottom:1px solid var(--line); background:#fbfffe; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+  header { padding:18px 22px; border-bottom:1px solid var(--line); background:#14171c; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
   h1 { margin:0; font-size:1.2rem; font-family:"Newsreader","Songti SC",serif; }
   .wrap { max-width:1000px; margin:0 auto; padding:20px; }
-  .hero { background:linear-gradient(135deg,#0f766e,#134e4a); color:#ecfdf5; border-radius:16px; padding:22px; margin-bottom:16px; }
+  .hero { background:linear-gradient(135deg,#0f766e,#0a3d3a); color:#ecfdf5; border-radius:16px; padding:22px; margin-bottom:16px; border:1px solid #134e4a; }
   .hero .score { font-size:3rem; font-family:ui-monospace,Menlo,monospace; }
   .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; }
   .l { color:var(--muted); font-size:.8rem; }
   .v { font-family:ui-monospace,Menlo,monospace; font-size:1.15rem; margin-top:6px; }
-  .bar { height:8px; background:#e5e7eb; border-radius:99px; margin-top:10px; overflow:hidden; }
+  .bar { height:8px; background:#2a2f3a; border-radius:99px; margin-top:10px; overflow:hidden; }
   .bar > i { display:block; height:100%; background:var(--accent); }
   .rule { margin-top:16px; color:var(--muted); font-size:.85rem; line-height:1.6; }
-  select,button { padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:#fff; }
-  a { color:#0f766e; text-decoration:none; }
+  select,button { padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:#1c2028; color:var(--ink); }
+  a { color:#2dd4bf; text-decoration:none; }
 </style>
 </head>
 <body>

@@ -5,23 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>交易决策系统</title>
 <style>
-  :root { --bg:#f5f3ef; --ink:#1c1917; --muted:#78716c; --line:#e7e5e4; --card:#fff; --go:#15803d; --stop:#b91c1c; --wait:#a16207; }
+  :root { color-scheme:dark; --bg:#0f1115; --ink:#e8eaed; --muted:#9aa0a6; --line:#2a2f3a; --card:#181b21; --go:#34d399; --stop:#f87171; --wait:#fbbf24; }
   body { margin:0; font-family:"IBM Plex Sans","PingFang SC",sans-serif; background:var(--bg); color:var(--ink); }
-  header { padding:18px 22px; border-bottom:1px solid var(--line); background:#fffcf8; display:flex; justify-content:space-between; align-items:center; }
+  header { padding:18px 22px; border-bottom:1px solid var(--line); background:#14171c; display:flex; justify-content:space-between; align-items:center; }
   h1 { margin:0; font-size:1.2rem; font-family:"Newsreader","Songti SC",serif; }
   .wrap { max-width:920px; margin:0 auto; padding:18px; display:grid; gap:14px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
   h2 { margin:0 0 10px; font-size:1rem; }
   label { display:block; margin:8px 0 4px; color:var(--muted); font-size:.85rem; }
-  input,textarea,select { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font:inherit; }
+  input,textarea,select { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font:inherit; background:#1c2028; color:var(--ink); }
   .row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   .layer { display:grid; grid-template-columns:1.4fr 90px; gap:8px; align-items:center; margin:8px 0; }
   .verdict { font-size:1.6rem; font-weight:700; font-family:ui-monospace,Menlo,monospace; }
   .go{color:var(--go)} .stop{color:var(--stop)} .wait{color:var(--wait)}
-  button { padding:8px 12px; border-radius:8px; border:1px solid var(--line); background:#fff; cursor:pointer; margin-right:8px; }
+  button { padding:8px 12px; border-radius:8px; border:1px solid var(--line); background:#1c2028; color:var(--ink); cursor:pointer; margin-right:8px; }
   table { width:100%; border-collapse:collapse; font-size:.85rem; }
   th,td { border-bottom:1px solid var(--line); padding:8px; text-align:left; }
-  a { color:#0f766e; text-decoration:none; }
+  a { color:#2dd4bf; text-decoration:none; }
   .checks label { display:flex; gap:8px; align-items:center; color:var(--ink); margin:6px 0; }
   @media (max-width:700px){ .row,.layer{grid-template-columns:1fr;} }
 </style>

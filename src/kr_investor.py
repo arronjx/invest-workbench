@@ -24,6 +24,14 @@ KST = timezone(timedelta(hours=9))
 # 韩国交易所现金盘：09:00–15:30 KST（= UTC+8 的 08:00–14:30）
 KR_OPEN = time(9, 0)
 KR_CLOSE = time(15, 30)
+# 采集窗口延到 17:30 KST（= UTC+8 16:30，港股 16:00 收盘后再留半小时缓冲）
+# 覆盖盘后多数成交 + Toss 个人/外机定稿；滤网「开盘」仍只用现金盘。
+KR_COLLECT_END = time(17, 30)
+# 服务端采集间隔；前端读库轮询建议值
+COLLECT_INTERVAL_SEC = 20
+COLLECT_INTERVAL_AFTER_SEC = 90  # 现金盘后～16:30 CST 降频
+UI_POLL_INTERVAL_MS = 10_000
+UI_POLL_INTERVAL_AFTER_MS = 30_000
 BASEDATE_STALE_GRACE_MIN = 20
 BASEDATE_STALE_CONFIRM_TICKS = 3
 BASEDATE_STALE_MIN_SAMPLES = 2  # 至少两只有 baseDate 才可推断休市
@@ -72,6 +80,26 @@ def is_kr_cash_session(now: datetime | None = None) -> bool:
         return False
     t = dt.time()
     return KR_OPEN <= t <= KR_CLOSE
+
+
+def is_kr_collect_window(now: datetime | None = None) -> bool:
+    """是否应主动采集：现金盘 + 盘后定稿窗口（到 17:30 KST / 16:30 CST）。"""
+    dt = now.astimezone(KST) if now else datetime.now(KST)
+    if dt.weekday() >= 5:
+        return False
+    if kr_calendar.is_kr_holiday(dt):
+        return False
+    t = dt.time()
+    return KR_OPEN <= t <= KR_COLLECT_END
+
+
+def collect_interval_sec(now: datetime | None = None) -> float:
+    """现金盘满频；盘后到 16:30 CST 降频，减轻 Toss 压力。"""
+    if is_kr_cash_session(now):
+        return float(COLLECT_INTERVAL_SEC)
+    if is_kr_collect_window(now):
+        return float(COLLECT_INTERVAL_AFTER_SEC)
+    return float(COLLECT_INTERVAL_SEC)
 
 
 def is_collection_paused_today(now: datetime | None = None) -> bool:
@@ -199,9 +227,10 @@ def snapshot_freshness(
     sampled_at: str | None,
     *,
     session_open: bool,
+    collecting: bool | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """快照新旧：盘中超过约 3 个采集周期未更新视为陈旧。"""
+    """快照新旧：采集窗口内超过约 3 个当前周期未更新视为陈旧。"""
     now_cst = (now or datetime.now(KST)).astimezone(timezone(timedelta(hours=8)))
     age_sec: int | None = None
     if sampled_at:
@@ -211,8 +240,13 @@ def snapshot_freshness(
             age_sec = max(0, int((now_cst - ts).total_seconds()))
         except ValueError:
             age_sec = None
-    # 盘中 20s×3；非盘中不因「不采集」误报陈旧，仅超 48h 提示
-    threshold = 60 if session_open else 48 * 3600
+    active = bool(collecting) if collecting is not None else session_open
+    if active:
+        interval = collect_interval_sec(now)
+        threshold = int(max(60, interval * 3))
+    else:
+        # 采集窗外不因「不采集」误报陈旧，仅超 48h 提示
+        threshold = 48 * 3600
     stale = bool(age_sec is not None and age_sec > threshold)
     return {
         "data_age_sec": age_sec,
@@ -778,11 +812,6 @@ def _dashboard_summary(stocks: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-# 服务端采集间隔；前端读库轮询建议值
-COLLECT_INTERVAL_SEC = 20
-UI_POLL_INTERVAL_MS = 10_000
-
-
 def collect_dashboard(codes: list[str] | None = None) -> dict[str, Any]:
     """拉取 Toss → 写 SQLite 分时桶 + 仪表盘快照。供后台定时任务调用。"""
     from src import kr_intraday_db as IDB
@@ -790,6 +819,7 @@ def collect_dashboard(codes: list[str] | None = None) -> dict[str, Any]:
     now = datetime.now(KST)
     calendar_holiday = kr_calendar.is_kr_holiday(now)
     session_open = is_kr_cash_session(now)
+    in_collect = is_kr_collect_window(now)
     today_kst = now.date().isoformat()
     stocks = []
     errors = []
@@ -805,17 +835,24 @@ def collect_dashboard(codes: list[str] | None = None) -> dict[str, Any]:
     inferred_holiday = bool(inferred.get("kr_holiday_inferred"))
     effective_holiday = calendar_holiday or inferred_holiday
     effective_session_open = session_open and not effective_holiday
+    # 盘后仍采快照+分时桶（定稿），但不把「现金盘开盘」标真
+    effective_collecting = in_collect and not effective_holiday
+    interval = collect_interval_sec(now)
+    after_hours = effective_collecting and not effective_session_open
+    poll_ms = None
+    if effective_collecting:
+        poll_ms = UI_POLL_INTERVAL_MS if effective_session_open else UI_POLL_INTERVAL_AFTER_MS
 
     for stock in stocks:
         points = IDB.record_from_signal(
             stock,
-            expected_trade_date=today_kst if session_open else None,
-            write=effective_session_open,
+            expected_trade_date=today_kst if in_collect else None,
+            write=effective_collecting,
         )
         stock["intraday"] = {
             "bucket_minutes": IDB.BUCKET_MINUTES,
             "timezone": "UTC+8",
-            "trade_date": today_kst if session_open else _latest_base_date(stock),
+            "trade_date": today_kst if in_collect else _latest_base_date(stock),
             "points": points,
             "db": IDB.db_display_path(),
             "source": "collector",
@@ -834,11 +871,13 @@ def collect_dashboard(codes: list[str] | None = None) -> dict[str, Any]:
         "timezone": "UTC+8",
         "kr_today": today_kst,
         "kr_session_open": effective_session_open,
+        "kr_collecting": effective_collecting,
+        "kr_after_hours": after_hours,
         "kr_holiday": effective_holiday,
         "kr_calendar_holiday": calendar_holiday,
         **inferred,
-        "collect_interval_sec": COLLECT_INTERVAL_SEC,
-        "poll_interval_ms": UI_POLL_INTERVAL_MS if effective_session_open else None,
+        "collect_interval_sec": interval,
+        "poll_interval_ms": poll_ms,
         "data_source": "sqlite",
         "source": TOSS_TREND_URL,
         "summary": summary,
@@ -846,7 +885,8 @@ def collect_dashboard(codes: list[str] | None = None) -> dict[str, Any]:
         "stocks": stocks,
         "errors": errors,
     }
-    sampled_at = IDB.save_dashboard_snapshot(pack, session_open=effective_session_open)
+    # session_open 字段沿用「是否活跃采集」语义，供旧快照兼容
+    sampled_at = IDB.save_dashboard_snapshot(pack, session_open=effective_collecting)
     pack["sampled_at"] = sampled_at
     return pack
 
@@ -858,19 +898,28 @@ def build_dashboard(codes: list[str] | None = None) -> dict[str, Any]:
     now = datetime.now(KST)
     calendar_holiday = kr_calendar.is_kr_holiday(now)
     session_open = is_kr_cash_session(now)
+    in_collect = is_kr_collect_window(now)
     snap = IDB.load_dashboard_snapshot()
     today_kst = now.date().isoformat()
+    interval = collect_interval_sec(now)
     if snap is None:
+        pending_collecting = in_collect and not calendar_holiday
         return {
             "fetched_at": D.now_iso(),
             "timezone": "UTC+8",
             "kr_today": today_kst,
-            "kr_session_open": session_open,
+            "kr_session_open": session_open and not calendar_holiday,
+            "kr_collecting": pending_collecting,
+            "kr_after_hours": pending_collecting and not session_open,
             "kr_holiday": calendar_holiday,
             "kr_calendar_holiday": calendar_holiday,
             "kr_holiday_inferred": False,
-            "collect_interval_sec": COLLECT_INTERVAL_SEC,
-            "poll_interval_ms": UI_POLL_INTERVAL_MS if session_open else None,
+            "collect_interval_sec": interval,
+            "poll_interval_ms": (
+                UI_POLL_INTERVAL_MS
+                if session_open and not calendar_holiday
+                else (UI_POLL_INTERVAL_AFTER_MS if pending_collecting else None)
+            ),
             "data_source": "sqlite",
             "pending": True,
             "stale": True,
@@ -878,7 +927,7 @@ def build_dashboard(codes: list[str] | None = None) -> dict[str, Any]:
             "summary": {
                 "headline": "等待服务端首次采集…",
                 "focus": None,
-                "reason": "后台每 20s 拉取 Toss 写入 SQLite",
+                "reason": "后台拉取 Toss 写入 SQLite（现金盘 20s，盘后至 16:30 CST 降频）",
             },
             "rule": RULE_META,
             "stocks": [],
@@ -901,7 +950,17 @@ def build_dashboard(codes: list[str] | None = None) -> dict[str, Any]:
     )
     effective_holiday = calendar_holiday or inferred_today
     effective_session_open = session_open and not effective_holiday
-    fresh = snapshot_freshness(sampled_at, session_open=effective_session_open, now=now)
+    effective_collecting = in_collect and not effective_holiday
+    after_hours = effective_collecting and not effective_session_open
+    fresh = snapshot_freshness(
+        sampled_at,
+        session_open=effective_session_open,
+        collecting=effective_collecting,
+        now=now,
+    )
+    poll_ms = None
+    if effective_collecting:
+        poll_ms = UI_POLL_INTERVAL_MS if effective_session_open else UI_POLL_INTERVAL_AFTER_MS
 
     return {
         "fetched_at": snap.get("fetched_at") or D.now_iso(),
@@ -909,6 +968,8 @@ def build_dashboard(codes: list[str] | None = None) -> dict[str, Any]:
         "timezone": "UTC+8",
         "kr_today": today_kst,
         "kr_session_open": effective_session_open,
+        "kr_collecting": effective_collecting,
+        "kr_after_hours": after_hours,
         "kr_holiday": effective_holiday,
         "kr_calendar_holiday": calendar_holiday,
         "kr_holiday_inferred": inferred_today,
@@ -918,8 +979,8 @@ def build_dashboard(codes: list[str] | None = None) -> dict[str, Any]:
         "stale_basedate_ticks": snap.get("stale_basedate_ticks"),
         "stale_basedate_confirm_ticks": snap.get("stale_basedate_confirm_ticks"),
         "stale_basedate_grace_min": snap.get("stale_basedate_grace_min"),
-        "collect_interval_sec": COLLECT_INTERVAL_SEC,
-        "poll_interval_ms": UI_POLL_INTERVAL_MS if effective_session_open else None,
+        "collect_interval_sec": interval,
+        "poll_interval_ms": poll_ms,
         "data_source": "sqlite",
         "source": snap.get("source") or TOSS_TREND_URL,
         "summary": snap.get("summary") or _dashboard_summary(stocks),

@@ -7,19 +7,20 @@
 <script src="/panels/vendor/chart.umd.min.js"></script>
 <style>
   :root {
-    --bg: #f4f5f7;
-    --ink: #111827;
-    --muted: #6b7280;
-    --line: #e5e7eb;
-    --card: #fff;
-    --head: #f9fafb;
-    --up: #e11d48;
-    --dn: #2563eb;
-    --pass: #047857;
-    --watch: #b45309;
-    --fail: #6b7280;
-    --weaken: #b91c1c;
-    --cautious: #b45309;
+    color-scheme: dark;
+    --bg: #0f1115;
+    --ink: #e8eaed;
+    --muted: #9aa0a6;
+    --line: #2a2f3a;
+    --card: #181b21;
+    --head: #1c2028;
+    --up: #f43f5e;
+    --dn: #60a5fa;
+    --pass: #34d399;
+    --watch: #fbbf24;
+    --fail: #9aa0a6;
+    --weaken: #f87171;
+    --cautious: #fbbf24;
   }
   * { box-sizing: border-box; }
   body {
@@ -29,24 +30,24 @@
   }
   header {
     display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
-    padding: 16px 22px; border-bottom: 1px solid var(--line); background: #fff;
+    padding: 16px 22px; border-bottom: 1px solid var(--line); background: #14171c;
     position: sticky; top: 0; z-index: 10;
   }
   h1 { margin: 0; font-size: 1.15rem; font-family: "Newsreader", "Songti SC", serif; }
   .meta { color: var(--muted); font-size: .85rem; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
   .pill { font-size: .72rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); }
-  .pill.on { background: #ecfdf5; border-color: #a7f3d0; color: #047857; }
-  .pill.off { background: #f3f4f6; color: var(--muted); }
-  .pill.warn { background: #fff7ed; border-color: #fed7aa; color: #c2410c; }
-  a { color: #0f766e; text-decoration: none; }
+  .pill.on { background: #0f2f2c; border-color: #134e4a; color: #34d399; }
+  .pill.off { background: #1c2028; color: var(--muted); }
+  .pill.warn { background: #2a2118; border-color: #78350f; color: #fb923c; }
+  a { color: #2dd4bf; text-decoration: none; }
   button {
-    border: 1px solid var(--line); background: #fff; border-radius: 8px;
+    border: 1px solid var(--line); background: #1c2028; color: var(--ink); border-radius: 8px;
     padding: 7px 12px; cursor: pointer; font: inherit;
   }
   .wrap { max-width: 1280px; margin: 0 auto; padding: 18px 20px 40px; display: grid; gap: 16px; }
   #root { display: grid; gap: 28px; }
   .hero {
-    background: linear-gradient(135deg, #ecfdf5 0%, #fff 55%, #fff7ed 100%);
+    background: linear-gradient(135deg, #0f2f2c 0%, #181b21 55%, #2a2118 100%);
     border: 1px solid var(--line); border-radius: 14px; padding: 20px 18px;
   }
   .hero .kicker { color: var(--muted); font-size: .8rem; margin-bottom: 6px; }
@@ -77,13 +78,13 @@
   .action {
     font-size: .9rem; font-weight: 700; padding: 4px 10px; border-radius: 8px; white-space: nowrap;
   }
-  .action.pass { background: #d1fae5; color: var(--pass); }
-  .action.watch { background: #ffedd5; color: var(--watch); }
-  .action.fail { background: #f3f4f6; color: var(--fail); }
-  .action.weaken { background: #fee2e2; color: var(--weaken); }
-  .action.none { background: #f3f4f6; color: var(--fail); }
+  .action.pass { background: #064e3b; color: var(--pass); }
+  .action.watch { background: #451a03; color: var(--watch); }
+  .action.fail { background: #1c2028; color: var(--fail); }
+  .action.weaken { background: #450a0a; color: var(--weaken); }
+  .action.none { background: #1c2028; color: var(--fail); }
   .diag-bar {
-    padding: 12px 16px; border-bottom: 1px solid var(--line); background: #fafafa;
+    padding: 12px 16px; border-bottom: 1px solid var(--line); background: #14171c;
   }
   .diag-title { font-size: .78rem; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
   .checks { display: flex; flex-wrap: wrap; gap: 8px 14px; font-size: .82rem; }
@@ -91,7 +92,7 @@
   .ok { color: var(--pass); } .bad { color: var(--weaken); } .na { color: var(--muted); }
   .score-tip { color: var(--muted); font-size: .82rem; line-height: 1.45; margin: 10px 0 0; }
   .chart-wrap {
-    padding: 12px 16px 8px; border-bottom: 1px solid var(--line); background: #fff;
+    padding: 12px 16px 8px; border-bottom: 1px solid var(--line); background: #181b21;
   }
   .chart-wrap .cap {
     color: var(--muted); font-size: .78rem; margin: 0 0 8px; font-weight: 600;
@@ -99,7 +100,7 @@
   .chart-wrap canvas { width: 100% !important; max-height: 220px; }
   .hist {
     overflow-x: auto; padding: 12px 16px 14px;
-    border-top: 1px solid var(--line); background: #fafafa;
+    border-top: 1px solid var(--line); background: #14171c;
   }
   .hist .cap {
     color: var(--muted); font-size: .78rem; margin: 0 0 8px; font-weight: 600;
@@ -118,7 +119,7 @@
   }
   .flow th { background: var(--head); color: var(--muted); font-weight: 600; font-size: .8rem; white-space: nowrap; }
   .flow td.label, .flow th.label { text-align: left; padding-left: 16px; color: var(--ink); font-weight: 500; white-space: nowrap; }
-  .flow tr.net td { font-weight: 600; border-bottom: 1px solid #d1d5db; }
+  .flow tr.net td { font-weight: 600; border-bottom: 1px solid #3d4654; }
   .up { color: var(--up); } .dn { color: var(--dn); }
   .foot {
     padding: 10px 16px; color: var(--muted); font-size: .78rem;
@@ -127,11 +128,11 @@
   .est { font-size: .72rem; color: var(--cautious); font-weight: 600; margin-left: 2px; vertical-align: super; }
   .tag-est {
     display: inline-block; font-size: .72rem; padding: 1px 6px; border-radius: 999px;
-    border: 1px solid #fcd34d; background: #fffbeb; color: #b45309; margin-left: 6px;
+    border: 1px solid #78350f; background: #2a2118; color: #fbbf24; margin-left: 6px;
   }
   .rule { color: var(--muted); font-size: .82rem; line-height: 1.55; margin: 0; }
   .rule strong { color: var(--ink); }
-  .err { color: #b91c1c; padding: 12px 16px; font-size: .9rem; }
+  .err { color: #f87171; padding: 12px 16px; font-size: .9rem; }
   @media (max-width: 640px) {
     .stock-head { grid-template-columns: 1fr; gap: 10px; }
     .head-right { justify-content: space-between; }
@@ -162,7 +163,7 @@
     ③ 价≥昨收 → ④ 近 2 日连续共振 → ⑤ 机构非自营短脉冲。
     涨幅≥5% 或仅 1 日共振 → 最高<strong>观察</strong>。外机分裂 / 无共振 → <strong>不通过</strong>。近 2 日转弱 → <strong>转弱</strong>。
     盘中个人残差 <code>≈ −(外资+机构)</code> 标<strong>估</strong>，仅诊断。
-    杠杆看 <code>07709</code>，供需看 <code>000660</code>。Toss · 服务端盘中约 20s 采集写库，前端读 SQLite。
+    杠杆看 <code>07709</code>，供需看 <code>000660</code>。Toss · 现金盘约 20s 采集，盘后至 16:30 CST 降频定稿，前端读 SQLite。
   </p>
 </div>
 <script>
@@ -257,7 +258,7 @@ function renderStock(s, marketClosed = false, krToday = null) {
     `<td>${c.estimated ? '—' : fmtPct(c.volume_pct)}</td>`).join('')}</tr>`;
   const chartBlock = marketClosed ? '' : `
     <div class="chart-wrap">
-      <p class="cap">分时（5 分钟桶 · SQLite）· 服务端 20s 采集 · X 轴 CST 08:00–14:30 · 点 ${(s.intraday && s.intraday.points || []).length}</p>
+      <p class="cap">分时（5 分钟桶 · SQLite）· 服务端采集 · X 轴 CST 08:00–16:30（14:30 后为盘后/定稿）· 点 ${(s.intraday && s.intraday.points || []).length}</p>
       <canvas id="chart-${s.code}" height="200"></canvas>
     </div>`;
   const flowBlock = marketClosed ? '' : `
@@ -361,10 +362,11 @@ function patchStockDom(stocks, marketClosed = false, krToday = null) {
   });
 }
 
-/** 韩股 09:00–15:30 KST = CST 08:00–14:30，每 5 分钟一格 */
+/** 韩股现金盘 09:00–15:30 KST = CST 08:00–14:30；采集延到 CST 16:30，每 5 分钟一格 */
 function sessionLabelsCST() {
   const labels = [];
-  for (let m = 8 * 60; m <= 14 * 60 + 30; m += 5) {
+  // 08:00–16:30 inclusive，步长 5 分钟
+  for (let m = 8 * 60; m <= 16 * 60 + 30; m += 5) {
     const hh = String(Math.floor(m / 60)).padStart(2, '0');
     const mm = String(m % 60).padStart(2, '0');
     labels.push(`${hh}:${mm}`);
@@ -407,9 +409,9 @@ function paintCharts(stocks) {
       existing.data.datasets[2].data = chg;
       // 同步线型样式（涨跌幅黄实线、无面积）
       const styles = [
-        { borderColor: '#1d4ed8', borderDash: [], fill: false },
+        { borderColor: '#60a5fa', borderDash: [], fill: false },
         { borderColor: '#93c5fd', borderDash: [], fill: false },
-        { borderColor: '#eab308', borderDash: [], fill: false },
+        { borderColor: '#fbbf24', borderDash: [], fill: false },
       ];
       styles.forEach((st, i) => {
         Object.assign(existing.data.datasets[i], st);
@@ -431,7 +433,7 @@ function paintCharts(stocks) {
           {
             label: '外资净买',
             data: foreign,
-            borderColor: '#1d4ed8',
+            borderColor: '#60a5fa',
             backgroundColor: 'transparent',
             fill: false,
             yAxisID: 'y',
@@ -457,7 +459,7 @@ function paintCharts(stocks) {
           {
             label: '涨跌幅%',
             data: chg,
-            borderColor: '#eab308',
+            borderColor: '#fbbf24',
             backgroundColor: 'transparent',
             fill: false,
             yAxisID: 'y1',
@@ -478,6 +480,7 @@ function paintCharts(stocks) {
         plugins: {
           legend: {
             labels: {
+              color: '#9aa0a6',
               boxWidth: 14,
               boxHeight: 2,
               usePointStyle: false,
@@ -500,13 +503,14 @@ function paintCharts(stocks) {
           x: {
             offset: false,
             ticks: {
+              color: '#9aa0a6',
               font: { size: 10 },
               maxRotation: 0,
               autoSkip: false,
               callback(val, idx) {
                 const lab = labels[idx];
                 if (!lab) return '';
-                if (lab.endsWith(':00') || lab === '08:00' || lab === '14:30') return lab;
+                if (lab.endsWith(':00') || lab === '08:00' || lab === '14:30' || lab === '16:30') return lab;
                 return '';
               },
             },
@@ -515,16 +519,16 @@ function paintCharts(stocks) {
           },
           y: {
             position: 'left',
-            title: { display: true, text: '净买(股)', font: { size: 10 } },
-            ticks: { font: { size: 10 }, callback: (v) => Number(v).toLocaleString('en-US') },
-            grid: { color: 'rgba(148,163,184,0.25)' },
+            title: { display: true, text: '净买(股)', color: '#9aa0a6', font: { size: 10 } },
+            ticks: { color: '#9aa0a6', font: { size: 10 }, callback: (v) => Number(v).toLocaleString('en-US') },
+            grid: { color: 'rgba(148,163,184,0.18)' },
             border: { display: false },
           },
           y1: {
             position: 'right',
             grid: { drawOnChartArea: false },
-            title: { display: true, text: '涨跌%', font: { size: 10 } },
-            ticks: { font: { size: 10 }, callback: (v) => Number(v).toFixed(2) + '%' },
+            title: { display: true, text: '涨跌%', color: '#9aa0a6', font: { size: 10 } },
+            ticks: { color: '#9aa0a6', font: { size: 10 }, callback: (v) => Number(v).toFixed(2) + '%' },
             border: { display: false },
           },
         },
@@ -576,6 +580,8 @@ async function load(manual) {
     const r = await fetch('/api/kr-dashboard');
     const d = await r.json();
     const open = !!d.kr_session_open;
+    const collecting = d.kr_collecting != null ? !!d.kr_collecting : open;
+    const afterHours = !!d.kr_after_hours;
     const collectSec = d.collect_interval_sec || 20;
     const el = document.getElementById('session');
     if (d.kr_holiday) {
@@ -589,10 +595,13 @@ async function load(manual) {
       el.textContent = `数据陈旧 · 快照 ${age}`;
       el.className = 'pill warn';
     } else if (open) {
-      el.textContent = `KOR 盘中 · 服务端 ${collectSec}s 采集 · 读库`;
+      el.textContent = `KOR 现金盘 · 服务端 ${collectSec}s 采集 · 读库`;
       el.className = 'pill on';
+    } else if (afterHours || collecting) {
+      el.textContent = `现金盘已收 · 盘后/定稿采集中（${collectSec}s · 至 16:30）`;
+      el.className = 'pill warn';
     } else {
-      el.textContent = '非开盘 · 停止自动刷';
+      el.textContent = '非采集时段 · 停止自动刷';
       el.className = 'pill off';
     }
     const stamp = d.sampled_at || d.fetched_at;
@@ -610,7 +619,8 @@ async function load(manual) {
       const errs = (d.errors || []).map(e => `<div class="err">${e.product_code}: ${e.error}</div>`).join('');
       renderDashboard(stocks, errs, !!d.kr_holiday, d.kr_today || null);
     }
-    schedule(open && !d.kr_holiday, d.poll_interval_ms || POLL_MS_DEFAULT);
+    const pollMs = d.poll_interval_ms || (afterHours ? 30000 : POLL_MS_DEFAULT);
+    schedule(collecting && !d.kr_holiday, pollMs);
   } catch (e) {
     document.getElementById('headline').textContent = '加载失败';
     document.getElementById('heroReason').textContent = String(e);

@@ -183,6 +183,8 @@ class Handler(BaseHTTPRequestHandler):
                 "role": ROLE,
                 "auth": auth_configured(),
                 "collect_interval_sec": kr_investor.COLLECT_INTERVAL_SEC,
+                "collect_interval_after_sec": kr_investor.COLLECT_INTERVAL_AFTER_SEC,
+                "collect_until_cst": "16:30",
             }
             if ROLE in ("all", "collector"):
                 body["persistence"] = IDB.persistence_info()
@@ -303,7 +305,10 @@ def main(host: str = "0.0.0.0", port: int | None = None, role: str | None = None
                 "请将 Volume Mount Path 设为 /app/data（挂在 collector 服务上）。"
             )
         kr_collector.start_collector(interval_sec=kr_investor.COLLECT_INTERVAL_SEC)
-        print(f"采集: 盘中每 {kr_investor.COLLECT_INTERVAL_SEC}s → SQLite")
+        print(
+            f"采集: 现金盘每 {kr_investor.COLLECT_INTERVAL_SEC}s；"
+            f"盘后至 16:30 CST 每 {kr_investor.COLLECT_INTERVAL_AFTER_SEC}s → SQLite"
+        )
     else:
         up = kr_upstream()
         print(f"KR_UPSTREAM={up or '(未设置)'}")

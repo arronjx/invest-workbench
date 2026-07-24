@@ -6,21 +6,22 @@
 <title>invest-workbench</title>
 <style>
   :root {
-    --bg: #f6f4f1;
-    --ink: #1c1917;
-    --muted: #78716c;
-    --card: #fffefb;
-    --line: #e7e5e4;
-    --accent: #0f766e;
-    --good: #15803d;
-    --bad: #b91c1c;
+    color-scheme: dark;
+    --bg: #0f1115;
+    --ink: #e8eaed;
+    --muted: #9aa0a6;
+    --card: #181b21;
+    --line: #2a2f3a;
+    --accent: #2dd4bf;
+    --good: #34d399;
+    --bad: #f87171;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0; font-family: "IBM Plex Sans", "PingFang SC", sans-serif;
     background:
-      radial-gradient(900px 500px at 10% -10%, #d9f0eb 0%, transparent 55%),
-      radial-gradient(700px 400px at 100% 0%, #fde7d6 0%, transparent 50%),
+      radial-gradient(900px 500px at 10% -10%, rgba(45,212,191,.12) 0%, transparent 55%),
+      radial-gradient(700px 400px at 100% 0%, rgba(251,146,60,.08) 0%, transparent 50%),
       var(--bg);
     color: var(--ink); min-height: 100vh;
   }
@@ -36,15 +37,15 @@
     display: block; text-decoration: none; color: inherit;
     background: var(--card); border: 1px solid var(--line);
     border-radius: 14px; padding: 18px 16px;
-    transition: transform .15s ease, box-shadow .15s ease;
+    transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
   }
-  a.card:hover { transform: translateY(-2px); box-shadow: 0 10px 30px rgba(28,25,23,.08); }
+  a.card:hover { transform: translateY(-2px); border-color: #3d4654; box-shadow: 0 12px 32px rgba(0,0,0,.35); }
   a.card h2 { margin: 0 0 8px; font-size: 1.1rem; }
   a.card p { margin: 0; color: var(--muted); font-size: .92rem; line-height: 1.5; }
   .tag { display: inline-block; font-size: .72rem; color: var(--accent);
-    border: 1px solid #99f6e4; background: #f0fdfa; border-radius: 999px; padding: 2px 8px; margin-bottom: 10px; }
+    border: 1px solid #134e4a; background: #0f2f2c; border-radius: 999px; padding: 2px 8px; margin-bottom: 10px; }
   footer { max-width: 960px; margin: 0 auto; padding: 0 28px 40px; color: var(--muted); font-size: .85rem; }
-  code { background: #f5f5f4; padding: 1px 6px; border-radius: 4px; }
+  code { background: #232730; padding: 1px 6px; border-radius: 4px; color: #d1d5db; }
 </style>
 </head>
 <body>
